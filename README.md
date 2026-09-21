@@ -12,7 +12,7 @@ A multi-chain testnet wallet experiment written in Go, for exploring transfers, 
 
 ## Solidity ETH vault
 
-A minimal Solidity deposit/withdraw contract with a Sepolia-only panel, per-address balances and reentrancy protection. Local contract and browser tests pass; Sepolia deployment and live deposit/withdraw acceptance are still pending. The panel remains disabled until a deployed address is configured.
+A Solidity deposit/withdraw contract with a Sepolia-only panel, per-address balances and reentrancy protection. The [2026-09-19 acceptance record](docs/evidence/vault-sepolia-2026-09-19/REPORT.md) documents public Sepolia deployment, Sourcify source verification and deposit/withdraw receipts. Etherscan-specific verification remains incomplete. The record describes that version; unconfigured environments remain disabled.
 
 [Payment escrow](docs/payment-escrow.md) adds test USDC funding, payer-authorized release and recipient-authorized full refunds to the original payer. It reuses the durable transaction journal and retry flow, with contract, Go/HTTP and Chromium + simulated EVM tests. Public Sepolia payment, release and refund flows have been completed; see the [receipts and balance checks](docs/evidence/escrow-sepolia-2026-09-22/README.md).
 

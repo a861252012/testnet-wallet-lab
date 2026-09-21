@@ -1,0 +1,7 @@
+{
+  "distinctHashes": true,
+  "apiReceiptsEventsAndGasMatch": true,
+  "baselineRestored": true,
+  "walletNetLossEqualsGasWei": "86824094801820",
+  "releaseUnchanged": true
+}

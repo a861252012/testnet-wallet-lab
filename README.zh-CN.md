@@ -12,7 +12,7 @@
 
 ## Solidity 测试 ETH 存款箱
 
-Solidity 存款／提款合约搭配 Sepolia 简易面板，包含每个地址独立余额与重入保护。本地合约及浏览器测试已通过；Sepolia 部署与真实存取仍待验收。未配置部署地址时，面板禁用操作。
+Solidity 存款／提款合约搭配 Sepolia 面板，包含每个地址独立余额与重入保护。[2026-09-19 验收记录](docs/evidence/vault-sepolia-2026-09-19/REPORT.md)记录了公共 Sepolia 部署、Sourcify 源码验证及存取结果；Etherscan 单独验证仍未完成。记录对应当时版本，未配置合约地址的环境仍禁用操作。
 
 新增[测试 USDC 付款托管](docs/payment-escrow.md)：付款人付款与放款，收款人可全额退回原付款人。沿用交易日志与重试流程，提供合约、Go/HTTP 及 Chromium＋模拟 EVM 测试；已在公共 Sepolia 完成付款、放款与退款，见[交易收据与余额验收](docs/evidence/escrow-sepolia-2026-09-22/README.md)。
 

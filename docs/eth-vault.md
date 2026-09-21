@@ -68,4 +68,4 @@ npm run test:e2e --prefix tests/browser
 4. 將實際地址設定為 `SEPOLIA_VAULT_ADDRESS` 並重啟服務。直接執行 Go 時由程序環境傳入；Compose 會傳入 `.env`／shell 設定的值。不要提交 `.env`、密碼或私鑰。
 5. 開啟 Ethereum Sepolia 的「智慧合約」，依上面的操作流程讀取餘額、用少量測試 ETH 存入，再取回錢包。核對成功收據、事件、更新後的存款與錢包餘額（扣除 Gas），留下兩筆交易 hash。
 
-公開 demo 發布／重啟及鏈上部署須分別處理；修改本機設定不代表遠端已啟用。這是測試網學習實作，尚未完成公共 Sepolia 存提驗收，也不是主網安全審計。
+公開 demo 發布／重啟及鏈上部署須分別處理；修改本機設定不代表遠端已啟用。2026-09-19 已完成公共 Sepolia 部署、Sourcify exact_match 原始碼驗證，以及公開 UI 存入與全額取回驗收；合約為 `0xDbB49ee9eC6ab924eA2D3e37Fd594b06648247bf`。發布版本與 CI 結果見[2026-09-19 發布證據](evidence/release-2026-09-19/REPORT.md)；完整收據、事件、Gas 與餘額見[公共 Sepolia 驗收報告](evidence/vault-sepolia-2026-09-19/REPORT.md)。這些是當日的歷史驗收紀錄，不代表目前工作樹已重新驗證。Etherscan 個別站台驗證仍未完成。這是測試網學習實作，未經主網安全審計。
