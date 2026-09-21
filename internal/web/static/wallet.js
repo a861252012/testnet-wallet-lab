@@ -378,6 +378,8 @@
     finally { button.disabled = false; button.textContent = '預估費用並核對'; }
   });
   let escrowInfo;
+  // Preserve only the polling target across transient errors; operations still require fresh escrowInfo.
+  let escrowPollingContract = '';
   let escrowOrder;
   let escrowBusy = false;
   let escrowQuery = 0;
@@ -425,6 +427,7 @@
     $('escrow-status').textContent = '正在更新付款託管狀態…';
     try {
       escrowInfo = await walletRequest('/api/wallet/escrow');
+      escrowPollingContract = escrowInfo.enabled ? escrowInfo.contract : '';
       $('escrow-status').textContent = escrowInfo.enabled ? '' : '付款託管尚未開放。';
       $('escrow-enabled').hidden = !escrowInfo.enabled;
       $('escrow-contract-link').replaceChildren();
@@ -491,6 +494,7 @@
         const raw = escrowUnits(amount);
         // Refresh allowances before deciding whether to approve; never infer payment from approval.
         const current = await walletRequest('/api/wallet/escrow');
+        escrowPollingContract = current.enabled ? current.contract : '';
         if (!current.enabled) throw new Error('付款託管尚未開放。');
         escrowInfo = current;
         const allowance = current.allowance === '0' ? 0n : escrowUnits(current.allowance);
@@ -903,7 +907,7 @@
     if(flow!==current)throw new Error('引導已變更，請重新報價。');
     data.flowID=current.id;data.flowKind=kind;openConfirmation(data);
   }
-  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => (tx.action || '').match(/^(vault_|escrow_)/) && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
+  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => ((tx.action || '').match(/^(vault_|escrow_)/) || tx.action === 'approve' && escrowPollingContract && tx.to?.toLowerCase() === escrowPollingContract.toLowerCase()) && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
 
   function displayAsset(raw, asset) {
     const config = walletState.exchange;

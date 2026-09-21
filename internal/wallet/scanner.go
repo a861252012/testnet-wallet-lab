@@ -22,23 +22,25 @@ type ScanProgress struct {
 }
 
 type scanProgressDisk struct {
-	Enabled   bool      `json:"enabled"`
-	Start     uint64    `json:"start"`
-	Next      uint64    `json:"next"`
-	Finalized uint64    `json:"finalized"`
-	Tokens    []string  `json:"tokens"`
-	Error     string    `json:"error,omitempty"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ExplicitStart bool      `json:"explicitStart,omitempty"`
+	Enabled       bool      `json:"enabled"`
+	Start         uint64    `json:"start"`
+	Next          uint64    `json:"next"`
+	Finalized     uint64    `json:"finalized"`
+	Tokens        []string  `json:"tokens"`
+	Error         string    `json:"error,omitempty"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
 type scanState struct {
-	Enabled   bool
-	Start     uint64
-	Next      uint64
-	Finalized uint64
-	Tokens    []EVMAddress
-	Error     string
-	UpdatedAt time.Time
+	ExplicitStart bool
+	Enabled       bool
+	Start         uint64
+	Next          uint64
+	Finalized     uint64
+	Tokens        []EVMAddress
+	Error         string
+	UpdatedAt     time.Time
 }
 
 func scanProgressResponse(state *scanState) *ScanProgress {
@@ -69,7 +71,8 @@ func scanProgressFromDisk(stored scanProgressDisk) (*scanState, error) {
 		tokens[i] = EVMAddress(token)
 	}
 	return &scanState{
-		Enabled: stored.Enabled, Start: stored.Start, Next: stored.Next, Finalized: stored.Finalized,
+		ExplicitStart: stored.ExplicitStart,
+		Enabled:       stored.Enabled, Start: stored.Start, Next: stored.Next, Finalized: stored.Finalized,
 		Tokens: tokens, Error: stored.Error, UpdatedAt: stored.UpdatedAt,
 	}, nil
 }
@@ -83,7 +86,8 @@ func scanProgressToDisk(state *scanState) scanProgressDisk {
 		}
 	}
 	return scanProgressDisk{
-		Enabled: state.Enabled, Start: state.Start, Next: state.Next, Finalized: state.Finalized,
+		ExplicitStart: state.ExplicitStart,
+		Enabled:       state.Enabled, Start: state.Start, Next: state.Next, Finalized: state.Finalized,
 		Tokens: tokens, Error: state.Error, UpdatedAt: state.UpdatedAt,
 	}
 }
@@ -121,6 +125,7 @@ func (s *Service) ConfigureScan(enabled bool, start *uint64) (*ScanProgress, err
 		return nil, err
 	}
 	if start != nil {
+		state.ExplicitStart = true
 		state.Start = *start
 		state.Next = *start
 	}
@@ -150,7 +155,8 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 	final, err := s.client.FinalizedNumber(ctx)
 	if err == nil {
 		state.Finalized = final
-		if state.Next == 0 {
+		// Legacy files without explicitStart retain the default recent-block behavior.
+		if state.Next == 0 && !state.ExplicitStart {
 			state.Next = final
 			if final > 19 {
 				state.Next = final - 19

@@ -408,6 +408,7 @@ const server = http.createServer(async (req,res)=>{
   assert.equal(await page.locator('#contacts-list img').count(),0);
   await view('send-panel');await page.locator('#contact-select').selectOption(address);assert.equal(await page.locator('#send-to').inputValue(),address);
   await require('./workspace-regression.cjs')(page);
+  await require('./escrow-polling.cjs')(page);
   console.log('PASS: transaction and block queries reject stale successes/errors and clear invalidated results.');
   await view('watch-panel');await page.locator('#watch-address').fill(address);await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('1 ETH'));
   balanceFailure=true;await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('unavailable'));balanceFailure=false;

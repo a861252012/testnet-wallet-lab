@@ -470,7 +470,7 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 	if !time.Now().Before(quote.ExpiresAt) {
 		return nil, ErrQuoteExpired
 	}
-	if quote.ReplacementHash != "" {
+	if quote.ReplacementHash != "" || isEscrowAction(quote.Action) {
 		gas, err := s.client.EstimateGas(ctx, ethereum.CallMsg{From: quote.From, To: &quote.TxTo, Value: quote.TxValue, Data: quote.Data, GasFeeCap: quote.MaxFeePerGas, GasTipCap: quote.MaxPriorityFeePerGas})
 		if err != nil {
 			return nil, err
