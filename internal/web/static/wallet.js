@@ -92,6 +92,8 @@
 
   function renderHistory(transactions) {
     historySnapshot = transactions || [];
+    const sent = historySnapshot.find(tx => tx.hash === $('send-feedback').dataset.hash);
+    if (sent) showSent(sent);
     $('vault-history').replaceChildren();
     for (const tx of historySnapshot.filter(tx => (tx.action || '').startsWith('vault_')).slice(0, 5)) {
       const row = node('p');
@@ -152,6 +154,7 @@
   }
 
   function showSent(data) {
+    $('send-feedback').dataset.hash = data.hash;
     $('send-feedback').hidden = false;
     $('send-feedback').replaceChildren(node('strong', stateLabels[data.state] || '交易已記錄，結果待確認'), node('p', data.hash, 'mono'), explorer('tx', data.hash), node('p', '已記錄交易雜湊。更新交易紀錄以確認收錄結果；廣播成功不等於交易執行成功。'));
   }

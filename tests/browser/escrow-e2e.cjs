@@ -68,6 +68,7 @@ const { chromium } = require('playwright');
     await page.waitForFunction(hash=>Array.from(document.querySelectorAll('#escrow-history a')).some(link=>link.href.endsWith(hash)),data.hash);
     await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
     assert.ok((await page.locator('#send-feedback').innerText()).includes(data.hash),'history recovery retains submission evidence');
+    assert.equal(await page.locator('#send-feedback strong').textContent(),'鏈上執行成功','submission feedback follows the refreshed receipt state');
     return data;
   }
   async function funded(reference,amount) {

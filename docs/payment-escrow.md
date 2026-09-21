@@ -50,7 +50,9 @@
 
 公開站的唯讀檢查使用 `npm run test:live --prefix tests/browser`。部署並啟用後，可設定 `EXPECTED_ESCROW_ADDRESS` 要求合約地址吻合；GitHub Actions 讀取同名 repository variable。這個變數只設定檢查預期，不能代替 VM 上的 `SEPOLIA_ESCROW_ADDRESS`。線上 UI 檢查不會付款，付款、放款與退款仍需另外核對實際收據。
 
-此變更不會部署合約、更新公開站或發送公共鏈交易。另行部署時，建構參數應使用 `internal/chain` 登錄的 Circle Sepolia USDC 地址；部署、來源驗證、設定、UI 操作與收據驗收是獨立步驟。`EscrowTestToken` 僅供本機測試，不能當成 Circle USDC 部署或宣傳。
+公開站已啟用合約，並完成兩筆付款、一次全額退款及一次放款；見[公共 Sepolia 驗收紀錄](evidence/escrow-sepolia-2026-09-22/README.md)。
+
+應用程式更新不會自動部署合約。部署其他環境時，建構參數應使用 `internal/chain` 登錄的 Circle Sepolia USDC 地址；部署、來源驗證、設定、UI 操作與收據驗收是獨立步驟。`EscrowTestToken` 僅供本機測試，不能當成 Circle USDC 部署或宣傳。
 
 ## 測試入口
 

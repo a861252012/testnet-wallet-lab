@@ -1,0 +1,43 @@
+{
+  "decimals": 6,
+  "token": "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
+  "buyer": "0x11A0130EecDF4648efed6a0E3A8901Bf9E44B293",
+  "seller": "0xe7A597C22c77E983B353CB39fb53a5479ec8c474",
+  "snapshots": {
+    "before": {
+      "block": "0xb35512",
+      "buyer": "20000000",
+      "seller": "0",
+      "escrow": "0",
+      "totalLocked": "0"
+    },
+    "refund-funded": {
+      "block": "0xb3551a",
+      "buyer": "15000000",
+      "seller": "0",
+      "escrow": "5000000",
+      "totalLocked": "5000000"
+    },
+    "refunded": {
+      "block": "0xb3551e",
+      "buyer": "20000000",
+      "seller": "0",
+      "escrow": "0",
+      "totalLocked": "0"
+    },
+    "release-funded": {
+      "block": "0xb35529",
+      "buyer": "16750000",
+      "seller": "0",
+      "escrow": "3250000",
+      "totalLocked": "3250000"
+    },
+    "released": {
+      "block": "0xb3552b",
+      "buyer": "16750000",
+      "seller": "3250000",
+      "escrow": "0",
+      "totalLocked": "0"
+    }
+  }
+}

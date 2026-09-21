@@ -1,0 +1,61 @@
+{
+  "checkedAt": "2026-09-21T18:53:01.477466+00:00",
+  "checks": [
+    "chain ID",
+    "successful receipt",
+    "sender",
+    "transaction target and calldata",
+    "canonical block inclusion",
+    "finality observation"
+  ],
+  "results": [
+    {
+      "network": "sepolia",
+      "hash": "0xe6ddfdd3044702d23eecbf5ea7201097a34907660539d0020ec8ded047fb4b33",
+      "block": 11752670,
+      "finalized": true
+    },
+    {
+      "network": "sepolia",
+      "hash": "0x9bd1bf123fbe5ca576080e2cd8235e8f5c69342fd07df4b2e8f82f4edbac3dd8",
+      "block": 11752724,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0xa17ef1edf6f15c899bb21bc78bb6039d43c9097e531f4815d2ebbc97dd35c15b",
+      "block": 11752728,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0xeb79075624896ba796cb162a2f97410adef7c1718aaa4b53324a6ba8c34b1677",
+      "block": 11752730,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0x5f20002b8a7710d7d97f28eeb04a672b16fe0ae5082e90ffe00cacd7a13c5569",
+      "block": 11752734,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0xbcc09ff4901b598912e162e050fb7ee64d3e7d62e0886087df3c333b2cdae3da",
+      "block": 11752742,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0xa94ca2a86a5e0b17fbe0f9b45dd0c55dcadb061f6eff3a2bcff312d496a03b50",
+      "block": 11752745,
+      "finalized": false
+    },
+    {
+      "network": "sepolia",
+      "hash": "0x38e09fe3bca624fe0a53e056c0bdce2fa10b8495885fa817460dd2bcd7291405",
+      "block": 11752747,
+      "finalized": false
+    }
+  ]
+}
