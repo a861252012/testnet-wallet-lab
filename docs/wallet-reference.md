@@ -268,7 +268,7 @@ FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$' -v -c
 
 Official sources: [Polygon Amoy configuration](https://docs.polygon.technology/pos/reference/rpc-endpoints), [TRON networks](https://developers.tron.network/docs/networks), [resource model](https://developers.tron.network/docs/resource-model), [TRON protobuf schema](https://github.com/tronprotocol/protocol/blob/master/core/Tron.proto).
 
-Read-only acceptance: `FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$/80002$' -v -count=1 ./internal/chain` and `FLOWLEDGER_LIVE_TRON=1 go test -run '^TestTronShastaReadOnly$' -v -count=1 ./internal/wallet`. These do not sign or broadcast. See [Polygon/TRON verification](polygon-tron-2026-09-15.md) for the initial read-only results, and [live acceptance](onchain-acceptance-2026-09-15.md) for outgoing Shasta transactions recorded that day. The [September 16 follow-up](onchain-acceptance-2026-09-16.md) records the later Amoy native transfer; neither report is a new verification run.
+Read-only acceptance: `FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$/80002$' -v -count=1 ./internal/chain` and `FLOWLEDGER_LIVE_TRON=1 go test -run '^TestTronShastaReadOnly$' -v -count=1 ./internal/wallet`. These do not sign or broadcast. See [September 15 live acceptance](onchain-acceptance-2026-09-15.md) for outgoing Shasta transactions and the [September 16 follow-up](onchain-acceptance-2026-09-16.md) for the later Amoy native transfer; neither report is a new verification run.
 
 ## Interface preferences
 
