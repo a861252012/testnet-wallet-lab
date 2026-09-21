@@ -37,9 +37,7 @@ func wipePrivateKey(k *ecdsa.PrivateKey) {
 		return
 	}
 	bits := k.D.Bits()
-	for i := range bits {
-		bits[i] = 0
-	}
+	clear(bits)
 	runtime.KeepAlive(bits)
 	k.D.SetInt64(0)
 }

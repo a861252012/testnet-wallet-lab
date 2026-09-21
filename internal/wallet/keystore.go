@@ -493,9 +493,7 @@ func atomicWriteFile(dest string, data []byte, perm os.FileMode) error {
 }
 
 func wipeBytes(b []byte) {
-	for i := range b {
-		b[i] = 0
-	}
+	clear(b)
 }
 
 func wipePrivateKey(k *ecdsa.PrivateKey) {
@@ -503,9 +501,7 @@ func wipePrivateKey(k *ecdsa.PrivateKey) {
 		return
 	}
 	b := k.D.Bits()
-	for i := range b {
-		b[i] = 0
-	}
+	clear(b)
 }
 
 // Multiple aliases for one signing address would otherwise have independent nonce journals.

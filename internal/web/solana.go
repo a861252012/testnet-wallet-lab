@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"html/template"
 	"net/http"
 	"time"
@@ -36,7 +35,7 @@ func NewSolana(service *wallet.SolanaService, csrf string) (http.Handler, error)
 		result, err := service.History(ctx)
 		respond(w, newSolanaRecordResponses(result), err)
 	}))
-	for _, action := range []string{"create", "quote", "send", "retry", "backup", "restore", "password"} {
+	for _, action := range []string{"create", "quote", "send", "retry"} {
 		mux.HandleFunc("POST /api/"+action, localWalletFilter(csrf, func(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
 			defer cancel()
@@ -100,51 +99,9 @@ func NewSolana(service *wallet.SolanaService, csrf string) (http.Handler, error)
 					return
 				}
 				respondWallet(w, 200, newSolanaRecordResponse(result), nil)
-			case "restore":
-				var req struct {
-					Backup      json.RawMessage `json:"backup"`
-					Password    string          `json:"password"`
-					NewPassword string          `json:"newPassword"`
-				}
-				if err := decodeStrictJSON(w, r, &req); err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				if err := service.RestoreBackup(req.Backup, req.Password, req.NewPassword); err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				respondWallet(w, 200, &walletMutationResponse{Restored: true}, nil)
-			case "password":
-				var req struct {
-					Password    string `json:"password"`
-					NewPassword string `json:"newPassword"`
-				}
-				if err := decodeStrictJSON(w, r, &req); err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				if err := service.ChangePassword(req.Password, req.NewPassword); err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				respondWallet(w, 200, &walletMutationResponse{Changed: true}, nil)
-			case "backup":
-				var req struct {
-					Password string `json:"password"`
-				}
-				if err := decodeStrictJSON(w, r, &req); err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				backup, err := service.Backup(req.Password)
-				if err != nil {
-					respondWallet(w, 400, nil, err)
-					return
-				}
-				respondWallet(w, 200, backup, nil)
 			}
 		}))
 	}
+	registerKeyRoutes(mux, csrf, service)
 	return secureHeaders(mux), nil
 }

@@ -1,6 +1,7 @@
 package erc4337
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"math/big"
@@ -82,19 +83,9 @@ var (
 
 // Builder 負責建構、估算與組裝 UserOperation
 type Builder struct {
-	entryPoint           common.Address
-	chainID              *big.Int
-	sender               common.Address
-	nonce                *big.Int
-	initCode             []byte
-	callData             []byte
-	callGasLimit         *big.Int
-	verificationGasLimit *big.Int
-	preVerificationGas   *big.Int
-	maxFeePerGas         *big.Int
-	maxPriorityFeePerGas *big.Int
-	paymasterAndData     []byte
-	signature            []byte
+	entryPoint common.Address
+	chainID    *big.Int
+	op         UserOperation
 }
 
 // NewBuilder 初始化 UserOperation 建構器
@@ -104,40 +95,42 @@ func NewBuilder(entryPoint common.Address, chainID *big.Int) *Builder {
 		cID = new(big.Int).Set(chainID)
 	}
 	return &Builder{
-		entryPoint:           entryPoint,
-		chainID:              cID,
-		nonce:                big.NewInt(0),
-		callGasLimit:         big.NewInt(0),
-		verificationGasLimit: big.NewInt(0),
-		preVerificationGas:   big.NewInt(0),
-		maxFeePerGas:         big.NewInt(0),
-		maxPriorityFeePerGas: big.NewInt(0),
+		entryPoint: entryPoint,
+		chainID:    cID,
+		op: UserOperation{
+			Nonce:                big.NewInt(0),
+			CallGasLimit:         big.NewInt(0),
+			VerificationGasLimit: big.NewInt(0),
+			PreVerificationGas:   big.NewInt(0),
+			MaxFeePerGas:         big.NewInt(0),
+			MaxPriorityFeePerGas: big.NewInt(0),
+		},
 	}
 }
 
 // SetSender 設定 Smart Contract Account 發送者地址
 func (b *Builder) SetSender(sender common.Address) *Builder {
-	b.sender = sender
+	b.op.Sender = sender
 	return b
 }
 
 // SetNonce 設定帳戶 Nonce
 func (b *Builder) SetNonce(nonce *big.Int) *Builder {
 	if nonce != nil {
-		b.nonce = new(big.Int).Set(nonce)
+		b.op.Nonce = new(big.Int).Set(nonce)
 	}
 	return b
 }
 
 // SetInitCode 設定部署合約用之 InitCode
 func (b *Builder) SetInitCode(initCode []byte) *Builder {
-	b.initCode = slices.Clone(initCode)
+	b.op.InitCode = slices.Clone(initCode)
 	return b
 }
 
 // SetCallData 設定直接執行之 CallData
 func (b *Builder) SetCallData(callData []byte) *Builder {
-	b.callData = slices.Clone(callData)
+	b.op.CallData = slices.Clone(callData)
 	return b
 }
 
@@ -159,7 +152,7 @@ func (b *Builder) SetExecuteCallData(target common.Address, value *big.Int, data
 	packed = append(packed, executeMethodID...)
 	packed = append(packed, callArgs...)
 
-	b.callData = packed
+	b.op.CallData = packed
 	return b, nil
 }
 
@@ -193,7 +186,7 @@ func (b *Builder) SetExecuteBatchCallData(targets []common.Address, values []*bi
 	packed = append(packed, executeBatchMethodID...)
 	packed = append(packed, callArgs...)
 
-	b.callData = packed
+	b.op.CallData = packed
 	return b, nil
 }
 
@@ -213,7 +206,7 @@ func (b *Builder) SetTransaction(tx *types.Transaction) (*Builder, error) {
 	}
 
 	if tx.Gas() > 0 {
-		b.callGasLimit = new(big.Int).SetUint64(tx.Gas())
+		b.op.CallGasLimit = new(big.Int).SetUint64(tx.Gas())
 	}
 
 	switch tx.Type() {
@@ -230,8 +223,8 @@ func (b *Builder) SetTransaction(tx *types.Transaction) (*Builder, error) {
 		}
 	}
 
-	if tx.Nonce() > 0 && (b.nonce == nil || b.nonce.Sign() == 0) {
-		b.nonce = new(big.Int).SetUint64(tx.Nonce())
+	if tx.Nonce() > 0 && (b.op.Nonce == nil || b.op.Nonce.Sign() == 0) {
+		b.op.Nonce = new(big.Int).SetUint64(tx.Nonce())
 	}
 
 	return b, nil
@@ -240,13 +233,13 @@ func (b *Builder) SetTransaction(tx *types.Transaction) (*Builder, error) {
 // SetGasLimits 設定各項 Gas Limit 參數
 func (b *Builder) SetGasLimits(callGasLimit, verificationGasLimit, preVerificationGas *big.Int) *Builder {
 	if callGasLimit != nil {
-		b.callGasLimit = new(big.Int).Set(callGasLimit)
+		b.op.CallGasLimit = new(big.Int).Set(callGasLimit)
 	}
 	if verificationGasLimit != nil {
-		b.verificationGasLimit = new(big.Int).Set(verificationGasLimit)
+		b.op.VerificationGasLimit = new(big.Int).Set(verificationGasLimit)
 	}
 	if preVerificationGas != nil {
-		b.preVerificationGas = new(big.Int).Set(preVerificationGas)
+		b.op.PreVerificationGas = new(big.Int).Set(preVerificationGas)
 	}
 	return b
 }
@@ -254,10 +247,10 @@ func (b *Builder) SetGasLimits(callGasLimit, verificationGasLimit, preVerificati
 // SetGasFees 設定 EIP-1559 費用參數
 func (b *Builder) SetGasFees(maxFeePerGas, maxPriorityFeePerGas *big.Int) *Builder {
 	if maxFeePerGas != nil {
-		b.maxFeePerGas = new(big.Int).Set(maxFeePerGas)
+		b.op.MaxFeePerGas = new(big.Int).Set(maxFeePerGas)
 	}
 	if maxPriorityFeePerGas != nil {
-		b.maxPriorityFeePerGas = new(big.Int).Set(maxPriorityFeePerGas)
+		b.op.MaxPriorityFeePerGas = new(big.Int).Set(maxPriorityFeePerGas)
 	}
 	return b
 }
@@ -299,13 +292,13 @@ func (b *Builder) EstimateGasFees(baseFee, priorityFee *big.Int) *Builder {
 
 // SetPaymasterAndData 設定 Paymaster 地址與驗證參數
 func (b *Builder) SetPaymasterAndData(paymasterAndData []byte) *Builder {
-	b.paymasterAndData = slices.Clone(paymasterAndData)
+	b.op.PaymasterAndData = slices.Clone(paymasterAndData)
 	return b
 }
 
 // SetSignature 設定簽名
 func (b *Builder) SetSignature(sig []byte) *Builder {
-	b.signature = slices.Clone(sig)
+	b.op.Signature = slices.Clone(sig)
 	return b
 }
 
@@ -332,47 +325,33 @@ func (b *Builder) EstimatePreVerificationGas(overhead *big.Int) *big.Int {
 	calcOnce := func() *big.Int {
 		var zeroCount, nonZeroCount int64
 		tally := func(data []byte) {
-			for _, byteVal := range data {
-				if byteVal == 0 {
-					zeroCount += 1
-				} else {
-					nonZeroCount += 1
-				}
-			}
+			zeros := bytes.Count(data, []byte{0})
+			zeroCount += int64(zeros)
+			nonZeroCount += int64(len(data) - zeros)
 		}
 
 		// 1. 統計固定欄位開銷
-		tally(b.sender.Bytes())
+		tally(b.op.Sender.Bytes())
 
-		nonceWord := bigIntTo32Bytes(b.nonce)
-		tally(nonceWord[:])
-
-		callGasWord := bigIntTo32Bytes(b.callGasLimit)
-		tally(callGasWord[:])
-
-		verificationGasWord := bigIntTo32Bytes(b.verificationGasLimit)
-		tally(verificationGasWord[:])
-
-		preVerificationGasWord := bigIntTo32Bytes(b.preVerificationGas)
-		tally(preVerificationGasWord[:])
-
-		maxFeeWord := bigIntTo32Bytes(b.maxFeePerGas)
-		tally(maxFeeWord[:])
-
-		maxPriorityFeeWord := bigIntTo32Bytes(b.maxPriorityFeePerGas)
-		tally(maxPriorityFeeWord[:])
+		for _, value := range []*big.Int{
+			b.op.Nonce, b.op.CallGasLimit, b.op.VerificationGasLimit,
+			b.op.PreVerificationGas, b.op.MaxFeePerGas, b.op.MaxPriorityFeePerGas,
+		} {
+			word := bigIntTo32Bytes(value)
+			tally(word[:])
+		}
 
 		// 2. 統計簽名欄位開銷：若已設定則統計實際位元組，否則預設 65 位元組非零簽名開銷
-		if len(b.signature) > 0 {
-			tally(b.signature)
+		if len(b.op.Signature) > 0 {
+			tally(b.op.Signature)
 		} else {
 			nonZeroCount += 65
 		}
 
 		// 3. 統計動態欄位開銷
-		tally(b.callData)
-		tally(b.initCode)
-		tally(b.paymasterAndData)
+		tally(b.op.CallData)
+		tally(b.op.InitCode)
+		tally(b.op.PaymasterAndData)
 
 		dataCost := zeroCount*4 + nonZeroCount*16
 		return new(big.Int).Add(overhead, big.NewInt(dataCost))
@@ -380,11 +359,11 @@ func (b *Builder) EstimatePreVerificationGas(overhead *big.Int) *big.Int {
 
 	// 第一次計算取得初步開銷
 	firstEst := calcOnce()
-	b.preVerificationGas = new(big.Int).Set(firstEst)
+	b.op.PreVerificationGas = new(big.Int).Set(firstEst)
 
 	// 第二次計算，自收斂 preVerificationGas 自身之位元組開銷
 	finalEst := calcOnce()
-	b.preVerificationGas = new(big.Int).Set(finalEst)
+	b.op.PreVerificationGas = new(big.Int).Set(finalEst)
 
 	return finalEst
 }
@@ -394,25 +373,13 @@ func CalcPreVerificationGas(op *UserOperation, overhead *big.Int) *big.Int {
 	if op == nil {
 		return big.NewInt(0)
 	}
-	b := &Builder{
-		sender:               op.Sender,
-		nonce:                op.Nonce,
-		initCode:             op.InitCode,
-		callData:             op.CallData,
-		callGasLimit:         op.CallGasLimit,
-		verificationGasLimit: op.VerificationGasLimit,
-		preVerificationGas:   op.PreVerificationGas,
-		maxFeePerGas:         op.MaxFeePerGas,
-		maxPriorityFeePerGas: op.MaxPriorityFeePerGas,
-		paymasterAndData:     op.PaymasterAndData,
-		signature:            op.Signature,
-	}
+	b := &Builder{op: *op}
 	return b.EstimatePreVerificationGas(overhead)
 }
 
 // Build 驗證參數並產出標準 UserOperation
 func (b *Builder) Build() (*UserOperation, error) {
-	if b.sender == (common.Address{}) {
+	if b.op.Sender == (common.Address{}) {
 		return nil, ErrInvalidSender
 	}
 	if b.entryPoint == (common.Address{}) {
@@ -422,19 +389,7 @@ func (b *Builder) Build() (*UserOperation, error) {
 		return nil, ErrInvalidChainID
 	}
 
-	op := &UserOperation{
-		Sender:               b.sender,
-		Nonce:                new(big.Int).Set(b.nonce),
-		InitCode:             slices.Clone(b.initCode),
-		CallData:             slices.Clone(b.callData),
-		CallGasLimit:         new(big.Int).Set(b.callGasLimit),
-		VerificationGasLimit: new(big.Int).Set(b.verificationGasLimit),
-		PreVerificationGas:   new(big.Int).Set(b.preVerificationGas),
-		MaxFeePerGas:         new(big.Int).Set(b.maxFeePerGas),
-		MaxPriorityFeePerGas: new(big.Int).Set(b.maxPriorityFeePerGas),
-		PaymasterAndData:     slices.Clone(b.paymasterAndData),
-		Signature:            slices.Clone(b.signature),
-	}
+	op := b.op.Clone()
 
 	if err := op.Validate(); err != nil {
 		return nil, err
@@ -456,6 +411,6 @@ func (b *Builder) BuildAndSign(signer UserOpSigner) (*UserOperation, error) {
 		return nil, fmt.Errorf("erc4337: 簽署 UserOperation 失敗: %w", err)
 	}
 	op.Signature = sig
-	b.signature = slices.Clone(sig)
+	b.op.Signature = slices.Clone(sig)
 	return op, nil
 }

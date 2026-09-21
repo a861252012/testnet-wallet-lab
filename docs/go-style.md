@@ -26,6 +26,8 @@
 
 ## 驗證與限制
 
+Commit 標題使用 `(類型) 具體改動`，例如 `(fix) 修正交易失敗後無法重新預估`。新增功能用 `(feat)`、等價重構用 `(refactor)`、文件用 `(docs)`、純測試用 `(test)`。同一項改動與必要測試放在同一個 commit；推送前合併零碎的修補 commit。已推送的共用歷史不為了改標題重寫。
+
 `go test ./...` 包含 DTO literal JSON 契約、nil/empty、儲存格式、舊 journal、簽名重載、原始 bytes 重送、SIGKILL 復原及並行狀態更新測試。`TestLayerBoundaries` 檢查依賴方向與 web DTO 外部欄位型別，**不是**完整資料流靜態分析；新增路由仍要檢查實際 handler 與輸出。
 
 CI 執行 `go test -race -count=1`、`go vet`、`gofmt` 與 `go fix -diff`，另外執行瀏覽器 fixture；CLI 測試已包含在 Go 測試內。Go 測試使用離線容器和暫存錢包；通過代表本機/mock 契約與復原驗證，不代表真實鏈上廣播、主網安全或正式環境效能。

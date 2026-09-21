@@ -3,12 +3,60 @@ package erc4337
 import (
 	"bytes"
 	"math/big"
+	"reflect"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
+
+func TestBuilder_DoesNotShareMutableInputsOrOutputs(t *testing.T) {
+	value := big.NewInt(42)
+	data := []byte{1, 0, 2}
+	b := NewBuilder(EntryPointV06, value).
+		SetSender(common.HexToAddress("0x1111111111111111111111111111111111111111")).
+		SetNonce(value).SetGasLimits(value, value, value).SetGasFees(value, value).
+		SetInitCode(data).SetCallData(data).SetPaymasterAndData(data).SetSignature(data)
+	op, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := op.Clone()
+	value.SetInt64(0)
+	clear(data)
+	if !reflect.DeepEqual(op, want) {
+		t.Fatal("changing setter inputs changed a built operation")
+	}
+
+	// Let overhead alias the input gas field; neither may be modified by estimation.
+	gas := op.PreVerificationGas
+	estimate := CalcPreVerificationGas(op, gas)
+	if estimate.Sign() <= 0 || !reflect.DeepEqual(op, want) || op.PreVerificationGas != gas {
+		t.Fatal("gas estimation changed the input operation or overhead")
+	}
+	estimate.SetInt64(0)
+	for _, number := range []*big.Int{
+		op.Nonce, op.CallGasLimit, op.VerificationGasLimit,
+		op.PreVerificationGas, op.MaxFeePerGas, op.MaxPriorityFeePerGas,
+	} {
+		number.SetInt64(0)
+	}
+	for _, field := range [][]byte{op.InitCode, op.CallData, op.PaymasterAndData, op.Signature} {
+		clear(field)
+	}
+	again, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again, want) {
+		t.Fatal("changing inputs or a built operation changed the builder")
+	}
+	b.SetNonce(big.NewInt(99)).SetCallData([]byte{9}).EstimatePreVerificationGas(nil)
+	if !reflect.DeepEqual(again, want) {
+		t.Fatal("changing the builder changed an earlier operation")
+	}
+}
 
 func TestBuilder_BuildAndSign(t *testing.T) {
 	privKey, err := crypto.GenerateKey()
@@ -171,8 +219,8 @@ func TestBuilder_SetExecuteCallData_EdgeCases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("value 為 nil 應成功打包: %v", err)
 	}
-	if !bytes.Equal(b.callData[:4], executeMethodID) {
-		t.Fatalf("選擇器不符，預期 %x，得到 %x", executeMethodID, b.callData[:4])
+	if !bytes.Equal(b.op.CallData[:4], executeMethodID) {
+		t.Fatalf("選擇器不符，預期 %x，得到 %x", executeMethodID, b.op.CallData[:4])
 	}
 
 	// 2. data 為 nil，空 payload
@@ -189,7 +237,7 @@ func TestBuilder_SetExecuteCallData_EdgeCases(t *testing.T) {
 	}
 
 	// 4. ABI 反向解包驗證
-	unpacked, err := executeArguments.Unpack(b.callData[4:])
+	unpacked, err := executeArguments.Unpack(b.op.CallData[4:])
 	if err != nil {
 		t.Fatalf("解包 execute calldata 失敗: %v", err)
 	}
@@ -233,12 +281,12 @@ func TestBuilder_SetExecuteBatchCallData(t *testing.T) {
 	}
 
 	// 驗證 selector 為 executeBatchMethodID (0x47e1da2a)
-	if !bytes.Equal(b.callData[:4], executeBatchMethodID) {
-		t.Fatalf("executeBatch 選擇器不符，預期 %x，得到 %x", executeBatchMethodID, b.callData[:4])
+	if !bytes.Equal(b.op.CallData[:4], executeBatchMethodID) {
+		t.Fatalf("executeBatch 選擇器不符，預期 %x，得到 %x", executeBatchMethodID, b.op.CallData[:4])
 	}
 
 	// ABI 解包驗證
-	unpacked, err := executeBatchArguments.Unpack(b.callData[4:])
+	unpacked, err := executeBatchArguments.Unpack(b.op.CallData[4:])
 	if err != nil {
 		t.Fatalf("解包 executeBatch 失敗: %v", err)
 	}
@@ -313,16 +361,16 @@ func TestBuilder_SetTransaction(t *testing.T) {
 		t.Fatalf("SetTransaction 失敗: %v", err)
 	}
 
-	if b.nonce.Int64() != 5 {
-		t.Fatalf("Nonce 設定不符，預期 5，得到 %s", b.nonce.String())
+	if b.op.Nonce.Int64() != 5 {
+		t.Fatalf("Nonce 設定不符，預期 5，得到 %s", b.op.Nonce.String())
 	}
-	if b.callGasLimit.Int64() != 80000 {
-		t.Fatalf("callGasLimit 不符，預期 80000，得到 %s", b.callGasLimit.String())
+	if b.op.CallGasLimit.Int64() != 80000 {
+		t.Fatalf("callGasLimit 不符，預期 80000，得到 %s", b.op.CallGasLimit.String())
 	}
-	if b.maxFeePerGas.Int64() != 3000000000 {
+	if b.op.MaxFeePerGas.Int64() != 3000000000 {
 		t.Fatalf("maxFeePerGas 不符")
 	}
-	if b.maxPriorityFeePerGas.Int64() != 1500000000 {
+	if b.op.MaxPriorityFeePerGas.Int64() != 1500000000 {
 		t.Fatalf("maxPriorityFeePerGas 不符")
 	}
 
@@ -340,7 +388,7 @@ func TestBuilder_SetTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Legacy SetTransaction 失敗: %v", err)
 	}
-	if bLegacy.maxFeePerGas.Int64() != 2000000000 || bLegacy.maxPriorityFeePerGas.Int64() != 2000000000 {
+	if bLegacy.op.MaxFeePerGas.Int64() != 2000000000 || bLegacy.op.MaxPriorityFeePerGas.Int64() != 2000000000 {
 		t.Fatalf("Legacy gas fees 不符")
 	}
 }
@@ -435,7 +483,7 @@ func TestBuilder_FeeEstimation(t *testing.T) {
 	// 測試 Builder 的 EstimateGasFees
 	b := NewBuilder(EntryPointV06, big.NewInt(1))
 	b.EstimateGasFees(baseFee, priorityFee)
-	if b.maxFeePerGas.Cmp(expectedMaxFee) != 0 || b.maxPriorityFeePerGas.Cmp(priorityFee) != 0 {
+	if b.op.MaxFeePerGas.Cmp(expectedMaxFee) != 0 || b.op.MaxPriorityFeePerGas.Cmp(priorityFee) != 0 {
 		t.Fatalf("Builder EstimateGasFees 設定不符")
 	}
 
@@ -443,7 +491,7 @@ func TestBuilder_FeeEstimation(t *testing.T) {
 	bDefault := NewBuilder(EntryPointV06, big.NewInt(1))
 	bDefault.EstimateGasFees(baseFee, nil)
 	expectedDefaultMaxFee := new(big.Int).Add(new(big.Int).Mul(baseFee, big.NewInt(2)), DefaultPriorityFeePerGas)
-	if bDefault.maxFeePerGas.Cmp(expectedDefaultMaxFee) != 0 {
+	if bDefault.op.MaxFeePerGas.Cmp(expectedDefaultMaxFee) != 0 {
 		t.Fatalf("預設 tip 費用不符")
 	}
 

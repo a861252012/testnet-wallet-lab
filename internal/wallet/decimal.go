@@ -49,12 +49,7 @@ func ParseUnits(amountStr string, decimals int) (*big.Int, error) {
 	if !decimalRegex.MatchString(amountStr) {
 		return nil, errors.New("金額格式不正確，僅支援無正負號的十進位數字，不可包含科學記號或非數字字元")
 	}
-	parts := strings.Split(amountStr, ".")
-	wholeStr := parts[0]
-	var fracStr string
-	if len(parts) == 2 {
-		fracStr = parts[1]
-	}
+	wholeStr, fracStr, _ := strings.Cut(amountStr, ".")
 	if len(fracStr) > decimals {
 		return nil, errors.New("金額小數位數超出該資產支援的上限")
 	}
