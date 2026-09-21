@@ -373,6 +373,41 @@ func TestHistoryUpdateStateAtomicIfVersionNoOpSkipsSave(t *testing.T) {
 	}
 }
 
+func TestJournalUnchangedUpdatesDoNotAllocate(t *testing.T) {
+	jm := &JournalManager{walletDir: t.TempDir()}
+	for i := range 1000 {
+		jm.records = append(jm.records, &JournalRecord{
+			Hash: TransactionHash(fmt.Sprintf("0x%064x", i+1)), State: JournalSucceeded,
+			Confirmations: "5", FeeETH: "0.001", Version: 1,
+		})
+	}
+	target := jm.records[len(jm.records)-1]
+	for _, tc := range []struct {
+		name    string
+		version uint64
+		updated bool
+	}{{"unchanged", 1, true}, {"stale version", 0, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			allocations := testing.AllocsPerRun(100, func() {
+				updated, err := jm.UpdateStateAtomicIfVersion(string(target.Hash), tc.version, "succeeded", "5", "0.001", "")
+				if err != nil || updated != tc.updated {
+					t.Fatalf("updated=%v, err=%v", updated, err)
+				}
+			})
+			if allocations != 0 {
+				t.Fatalf("unchanged journal allocated %.0f objects", allocations)
+			}
+			if jm.records[len(jm.records)-1] != target || target.Version != 1 {
+				t.Fatal("unchanged update replaced or modified the record")
+			}
+		})
+	}
+	files, err := os.ReadDir(jm.walletDir)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("unchanged updates wrote to disk: %v, err=%v", files, err)
+	}
+}
+
 func TestLegacyPasswordStillDecryptsAndBacksUp(t *testing.T) {
 	km := NewKeystoreManager(t.TempDir(), 2, 1)
 	const currentPassword = "fixture-password-123"
@@ -1067,6 +1102,12 @@ func TestStorageFaultOnDiskFailureVsCASMismatch(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		before := *s.journal.FindByHash(string(rec.Hash))
+		journalPath := s.journal.journalPath()
+		original, err := os.ReadFile(journalPath)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		blockerFile := filepath.Join(t.TempDir(), "blocker-file")
 		if err := os.WriteFile(blockerFile, []byte("blocker"), 0600); err != nil {
@@ -1074,12 +1115,19 @@ func TestStorageFaultOnDiskFailureVsCASMismatch(t *testing.T) {
 		}
 		s.journal.walletDir = filepath.Join(blockerFile, "wallet")
 
-		updated, err := s.journal.UpdateStateAtomicIfVersion(string(rec.Hash), v, "submitted", "", "", "")
+		updated, err := s.journal.UpdateStateAtomicIfVersion(string(rec.Hash), v, "succeeded", "5", "0.001", "", true)
 		if err == nil {
 			t.Fatal("expected disk error on invalid directory")
 		}
 		if updated {
 			t.Fatal("expected updated=false on disk error")
+		}
+		if after := s.journal.FindByHash(string(rec.Hash)); *after != before {
+			t.Fatal("failed persistence changed the in-memory record")
+		}
+		after, err := os.ReadFile(journalPath)
+		if err != nil || string(after) != string(original) {
+			t.Fatalf("failed persistence changed the original journal: %v", err)
 		}
 	})
 

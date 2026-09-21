@@ -88,6 +88,7 @@ type TronService struct {
 	quotes                map[QuoteID]*TronQuote
 	records               []tronJournalRecord
 	fault                 bool
+	historyNext           int
 }
 
 func NewTronService(endpoint, apiKey, dir string, n int) (*TronService, error) {
@@ -512,87 +513,107 @@ func (s *TronService) History(ctx context.Context) ([]TronRecord, error) {
 		return nil, err
 	}
 	next := slices.Clone(s.records)
-	for i := range next {
-		r := &next[i]
-		if r.Finalized {
+	var refreshErr error
+	start := s.historyNext
+	for offset := range len(next) {
+		i := (start + offset) % len(next)
+		if next[i].Finalized {
 			continue
 		}
 		if ctx.Err() != nil {
-			return nil, errTronRPC
+			refreshErr = errTronRPC
+			break
 		}
-		var solid struct {
-			ID     string `json:"blockID"`
-			Header struct {
-				Raw struct {
-					Timestamp int64 `json:"timestamp"`
-				} `json:"raw_data"`
-			} `json:"block_header"`
-		}
-		if time.Now().After(r.Expires) && !r.Expires.IsZero() {
-			if err := s.call(ctx, "/walletsolidity/getnowblock", map[string]any{}, &solid); err != nil {
-				return nil, err
-			}
-			if !validTronHash(solid.ID) || solid.Header.Raw.Timestamp <= 0 || solid.Header.Raw.Timestamp > time.Now().Add(30*time.Second).UnixMilli() {
-				return nil, errTronRPC
-			}
-		}
-		var info struct {
-			ID             string
-			Fee            int64
-			Block          int64 `json:"blockNumber"`
-			Result         string
-			ContractResult []string `json:"contractResult"`
-			Receipt        struct{ Result string }
-		}
-		if err := s.call(ctx, "/walletsolidity/gettransactioninfobyid", map[string]string{"value": string(r.Signature)}, &info); err != nil {
-			return nil, err
-		}
-		if info.ID == "" {
-			if solid.Header.Raw.Timestamp > r.Expires.UnixMilli() && !r.Expires.IsZero() {
-				// Expiration is enforced against chain time, not the local clock. Keep the journal;
-				// this is an absent receipt after expiry, never a successful/failed execution claim.
-				r.State = "expired_unconfirmed"
-				r.ExpiryCheckedBlock = solid.ID
-				r.ExpiryCheckedAt = solid.Header.Raw.Timestamp
+		// A slow record must not consume the first turn again after a deadline.
+		s.historyNext = (i + 1) % len(next)
+		record := next[i]
+		if err := s.refreshRecord(ctx, &record); err != nil {
+			if refreshErr == nil {
+				refreshErr = err
 			}
 			continue
 		}
-		if info.ID != string(r.Signature) || info.Block <= 0 || info.Fee < 0 {
-			return nil, errTronRPC
-		}
-		r.Finalized = true
-		r.State = "finalized"
-		r.Result = info.Receipt.Result
-		if info.Result == "FAILED" || (info.Receipt.Result != "" && info.Receipt.Result != "SUCCESS") {
-			r.State = "execution_failed"
-			if r.Result == "" {
-				r.Result = info.Result
-			}
-		}
-		if r.Contract != "" && r.State == "finalized" {
-			if len(info.ContractResult) != 1 {
-				return nil, errTronRPC
-			}
-			raw, e := hex.DecodeString(info.ContractResult[0])
-			var ok bool
-			if e != nil || erc20ABI.UnpackIntoInterface(&ok, "transfer", raw) != nil {
-				return nil, errTronRPC
-			}
-			if !ok {
-				r.State = "execution_failed"
-				r.Result = "TRC20_RETURNED_FALSE"
-			}
-		}
-		r.FeeTRX = FormatUnits(big.NewInt(info.Fee), 6)
+		next[i] = record
 	}
 	if !slices.Equal(s.records, next) {
 		if err := s.save(next); err != nil {
 			return nil, err
 		}
 	}
+	if refreshErr != nil {
+		return nil, refreshErr
+	}
 	list := []TronRecord{}
 	for _, r := range s.records[max(0, len(s.records)-20):] {
 		list = append(list, tronRecordResponse(r))
 	}
 	return list, nil
+}
+
+func (s *TronService) refreshRecord(ctx context.Context, r *tronJournalRecord) error {
+	var solid struct {
+		ID     string `json:"blockID"`
+		Header struct {
+			Raw struct {
+				Timestamp int64 `json:"timestamp"`
+			} `json:"raw_data"`
+		} `json:"block_header"`
+	}
+	if time.Now().After(r.Expires) && !r.Expires.IsZero() {
+		if err := s.call(ctx, "/walletsolidity/getnowblock", map[string]any{}, &solid); err != nil {
+			return err
+		}
+		if !validTronHash(solid.ID) || solid.Header.Raw.Timestamp <= 0 || solid.Header.Raw.Timestamp > time.Now().Add(30*time.Second).UnixMilli() {
+			return errTronRPC
+		}
+	}
+	var info struct {
+		ID             string
+		Fee            int64
+		Block          int64 `json:"blockNumber"`
+		Result         string
+		ContractResult []string `json:"contractResult"`
+		Receipt        struct{ Result string }
+	}
+	if err := s.call(ctx, "/walletsolidity/gettransactioninfobyid", map[string]string{"value": string(r.Signature)}, &info); err != nil {
+		return err
+	}
+	if info.ID == "" {
+		if solid.Header.Raw.Timestamp > r.Expires.UnixMilli() && !r.Expires.IsZero() {
+			// Expiration is enforced against chain time, not the local clock. Keep the journal;
+			// this is an absent receipt after expiry, never a successful/failed execution claim.
+			r.State = "expired_unconfirmed"
+			r.ExpiryCheckedBlock = solid.ID
+			r.ExpiryCheckedAt = solid.Header.Raw.Timestamp
+		}
+		return nil
+	}
+	if info.ID != string(r.Signature) || info.Block <= 0 || info.Fee < 0 {
+		return errTronRPC
+	}
+	r.Finalized = true
+	r.State = "finalized"
+	r.Result = info.Receipt.Result
+	if info.Result == "FAILED" || (info.Receipt.Result != "" && info.Receipt.Result != "SUCCESS") {
+		r.State = "execution_failed"
+		if r.Result == "" {
+			r.Result = info.Result
+		}
+	}
+	if r.Contract != "" && r.State == "finalized" {
+		if len(info.ContractResult) != 1 {
+			return errTronRPC
+		}
+		raw, e := hex.DecodeString(info.ContractResult[0])
+		var ok bool
+		if e != nil || erc20ABI.UnpackIntoInterface(&ok, "transfer", raw) != nil {
+			return errTronRPC
+		}
+		if !ok {
+			r.State = "execution_failed"
+			r.Result = "TRC20_RETURNED_FALSE"
+		}
+	}
+	r.FeeTRX = FormatUnits(big.NewInt(info.Fee), 6)
+	return nil
 }

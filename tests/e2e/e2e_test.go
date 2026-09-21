@@ -66,15 +66,21 @@ func startSimulatedRPC(t *testing.T, sim *simulated.Backend, mu *sync.Mutex) *ht
 				res = hexutil.EncodeBig(head.Number)
 			}
 		case "eth_getBlockByNumber":
-			var params []any
-			_ = json.Unmarshal(req.Params, &params)
-			var num *big.Int
-			if len(params) > 0 && params[0] != nil {
-				if s, ok := params[0].(string); ok && s != "latest" && s != "pending" && s != "earliest" {
-					num, _ = hexutil.DecodeBig(s)
-				}
+			var params []json.RawMessage
+			if err := json.Unmarshal(req.Params, &params); err != nil || len(params) != 2 {
+				rpcErr = errors.New("eth_getBlockByNumber requires a block tag and transaction flag")
+				break
 			}
-			head, err := sim.Client().HeaderByNumber(ctx, num)
+			var number rpc.BlockNumber
+			if err := json.Unmarshal(params[0], &number); err != nil {
+				rpcErr = fmt.Errorf("invalid block tag: %w", err)
+				break
+			}
+			if string(params[1]) != "true" && string(params[1]) != "false" {
+				rpcErr = errors.New("eth_getBlockByNumber requires a boolean transaction flag")
+				break
+			}
+			head, err := sim.Client().HeaderByNumber(ctx, big.NewInt(number.Int64()))
 			if err != nil {
 				rpcErr = err
 			} else {

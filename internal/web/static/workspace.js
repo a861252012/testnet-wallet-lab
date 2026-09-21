@@ -6,6 +6,12 @@
     catch { return []; }
   }
   let watches = stored(watchesKey);
+  let watchQuery = 0;
+  function invalidateWatch() {
+    watchQuery++;
+    $('watch-transactions').replaceChildren();
+  }
+  for (const id of ['watch-address', 'watch-hash', 'watch-block']) $(id).addEventListener('input', invalidateWatch);
   function address(input) {
     const value = $(input).value.trim();
     if (!/^0x[0-9a-fA-F]{40}$/.test(value) || /^0x0{40}$/i.test(value)) throw new Error('請輸入完整且非零的地址；轉帳時仍會驗證大小寫校驗。');
@@ -16,7 +22,7 @@
     for (const item of watches) {
       const row = node('div','','contact-row'), select = node('button',item.address,'secondary'), remove = node('button','移除','secondary');
       select.type = remove.type = 'button';
-      select.addEventListener('click',()=>{ $('watch-address').value=item.address; $('watch-form').requestSubmit(); });
+      select.addEventListener('click',()=>{ invalidateWatch(); $('watch-address').value=item.address; $('watch-form').requestSubmit(); });
       remove.addEventListener('click',()=>{
         try { const next=watches.filter(w=>w.address!==item.address); localStorage.setItem(watchesKey,JSON.stringify(next));watches=next;renderWatches(); }
         catch { $('watch-result').textContent='無法儲存變更。'; }
@@ -44,25 +50,30 @@
     }catch(error){$('watch-result').textContent=errorMessage(error);}finally{button.disabled=false;}
   });
   async function inspectWatch(hash) {
+    const queryID = ++watchQuery;
+    $('watch-hash').value = hash;
     const result=$('watch-transactions');result.textContent='正在核對收據…';
     try {
       const tx=await request('/api/watch/activity?'+new URLSearchParams({address:address('watch-address'),hash}));
+      if (queryID !== watchQuery) return;
       result.replaceChildren(node('p',`${tx.state} · ${tx.blockTime ? time(tx.blockTime) : '尚無區塊時間'}`),explorer('tx',tx.hash));
       for(const movement of tx.movements)result.append(details([['方向',movement.kind],['資產',movement.asset],['原始整數數量',movement.raw],['證據',movement.evidence]]));
       if(!tx.movements.length)result.append(node('p','尚無可列入的資產移動。'));
-    }catch(error){result.textContent=errorMessage(error);}
+    }catch(error){if(queryID===watchQuery)result.textContent=errorMessage(error);}
   }
   $('watch-tx-form').addEventListener('submit',event=>{event.preventDefault();inspectWatch($('watch-hash').value.trim());});
   $('watch-history-form').addEventListener('submit',async event=>{
     event.preventDefault();const button=event.currentTarget.querySelector('button');if(button.disabled)return;button.disabled=true;
+    const queryID = ++watchQuery;
     $('watch-transactions').textContent='正在查核指定區塊…';
     try{
       const query=new URLSearchParams({address:address('watch-address')});const block=$('watch-block').value.trim();if(block)query.set('block',block);
       const response=await fetch(networkPrefix+'/api/watch/activity?'+query,{signal:AbortSignal.timeout(45000)});const data=await response.json();if(!response.ok)throw new Error(data.error);
+      if (queryID !== watchQuery) return;
       $('watch-transactions').replaceChildren(node('p',`區塊 ${data.block} · ${data.coverage}`));
       for(const hash of data.hashes){const button=node('button',hash,'secondary mono');button.type='button';button.addEventListener('click',()=>inspectWatch(hash));$('watch-transactions').append(button);}
       if(!data.hashes.length)$('watch-transactions').append(node('p','此區塊沒有找到相關交易；這不代表此地址沒有其他歷史。'));
-    }catch(error){$('watch-transactions').textContent=errorMessage(error);}finally{button.disabled=false;}
+    }catch(error){if(queryID===watchQuery)$('watch-transactions').textContent=errorMessage(error);}finally{button.disabled=false;}
   });
   $('diagnostics-refresh').addEventListener('click',async()=>{
     const button=$('diagnostics-refresh');if(button.disabled)return;button.disabled=true;

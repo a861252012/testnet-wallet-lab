@@ -407,6 +407,8 @@ const server = http.createServer(async (req,res)=>{
   await view('contacts-panel');await page.locator('#contact-label').fill('<img src=x onerror=alert(1)>');await page.locator('#contact-address').fill(address);await page.locator('#contact-form button').click();
   assert.equal(await page.locator('#contacts-list img').count(),0);
   await view('send-panel');await page.locator('#contact-select').selectOption(address);assert.equal(await page.locator('#send-to').inputValue(),address);
+  await require('./workspace-regression.cjs')(page);
+  console.log('PASS: transaction and block queries reject stale successes/errors and clear invalidated results.');
   await view('watch-panel');await page.locator('#watch-address').fill(address);await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('1 ETH'));
   balanceFailure=true;await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('unavailable'));balanceFailure=false;
   await view('exchange-panel');await page.locator('#exchange-action').selectOption('eth-usdc');await page.locator('#exchange-amount').fill('0.000001');
@@ -520,6 +522,7 @@ const server = http.createServer(async (req,res)=>{
   await page.locator('#tron-sign-password').fill('fixture-password-only');await page.locator('#tron-sign button[type=submit]').click();await page.locator('#tron-confirm').waitFor({state:'hidden'});await page.waitForFunction(()=>document.querySelector('#tron-history').textContent.includes('終局確認'));assert.equal(tronSends,1);assert.equal(await page.locator('#tron-sign-password').inputValue(),'');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'TRON mobile overflow');
   console.log('PASS: Solana/TRON refresh renews rotated CSRF before quoting without automatically signing or sending (mock APIs).');
+  await require('./recovery-focused.cjs')(page);
   exists=true; await page.setViewportSize({width:1280,height:900});await page.goto(base);await page.locator('#wallet-dashboard').waitFor({state:'visible'});
   await view('send-panel');await page.locator('#send-to').fill(address);await page.locator('#send-amount').fill('0.012345');
   await page.locator('#language-select').selectOption('en');

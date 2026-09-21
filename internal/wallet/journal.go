@@ -373,7 +373,7 @@ type RefreshItem struct {
 	State   JournalState
 }
 
-// RefreshItems includes outstanding transactions and the latest 20 mined records for reorg checks.
+// RefreshItems includes non-finalized transactions whose nonce has no finalized mined record.
 func (jm *JournalManager) RefreshItems() []RefreshItem {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
@@ -409,18 +409,16 @@ func (jm *JournalManager) UpdateStateAtomicIfVersion(hash string, expectedVersio
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
-	next := make([]*JournalRecord, len(jm.records))
-	found := false
 	var target *JournalRecord
+	targetIndex := -1
 	for i, record := range jm.records {
-		copy := *record
-		if string(copy.Hash) == hash {
-			target = &copy
-			found = true
+		if string(record.Hash) == hash {
+			target = record
+			targetIndex = i
+			break
 		}
-		next[i] = &copy
 	}
-	if !found {
+	if target == nil {
 		return false, errors.New("找不到欲更新的交易紀錄")
 	}
 
@@ -435,6 +433,13 @@ func (jm *JournalManager) UpdateStateAtomicIfVersion(hash string, expectedVersio
 		return true, nil
 	}
 
+	// Copy only after the checks; failed persistence must leave the current records untouched.
+	next := make([]*JournalRecord, len(jm.records))
+	for i, record := range jm.records {
+		copy := *record
+		next[i] = &copy
+	}
+	target = next[targetIndex]
 	target.Finalized = isFinal
 	target.State = journalState
 	target.UpdatedAt = time.Now().UTC()

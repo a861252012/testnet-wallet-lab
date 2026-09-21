@@ -1,6 +1,7 @@
 'use strict';
 // Source-message catalog: English and Simplified Chinese. Traditional Chinese is the source.
 window.FlowMessages = {
+  "送出時狀態": ["Submission status", "提交时状态"],
   "智慧合約": ["Smart contract", "智能合约"],
   "ETH 存入與取回": ["Deposit and withdraw ETH", "ETH 存入与取回"],
   "測試網": ["Testnet", "测试网"],
