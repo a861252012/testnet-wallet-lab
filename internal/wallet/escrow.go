@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"math/big"
@@ -11,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
@@ -31,12 +33,65 @@ var escrowABI = func() abi.ABI {
 type OrderReference string
 
 var orderReferencePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+var orderKeyPattern = regexp.MustCompile(`^0x[0-9a-fA-F]{64}$`)
 
 func ParseOrderReference(value string) (OrderReference, error) {
-	if !orderReferencePattern.MatchString(value) {
+	if !orderReferencePattern.MatchString(value) && !orderKeyPattern.MatchString(value) {
 		return "", errors.New("訂單編號請使用 1–64 個英文字母、數字、連字號或底線")
 	}
 	return OrderReference(value), nil
+}
+
+// Old journals retain the signed order key even when the original reference was lost.
+func (reference OrderReference) key() common.Hash {
+	if orderKeyPattern.MatchString(string(reference)) {
+		return common.HexToHash(string(reference))
+	}
+	return crypto.Keccak256Hash([]byte(reference))
+}
+
+// Bind the saved reference to signed calldata; derive buyer and contract instead of trusting disk metadata.
+func restoreEscrowJournal(record *JournalRecord, tx *types.Transaction) error {
+	if !isEscrowAction(record.Action) {
+		if record.OrderID != "" {
+			return errors.New("非託管交易不可包含訂單編號")
+		}
+		return nil
+	}
+	methodName := map[TransactionAction]string{ActionEscrowFund: "fund", ActionEscrowRelease: "release", ActionEscrowRefund: "refund"}[record.Action]
+	method := escrowABI.Methods[methodName]
+	data := tx.Data()
+	if tx.To() == nil || len(data) < 4 || !bytes.Equal(data[:4], method.ID) {
+		return errors.New("交易日誌的託管操作與簽名不符")
+	}
+	values, err := method.Inputs.Unpack(data[4:])
+	if err != nil {
+		return errors.New("交易日誌的訂單資料不完整")
+	}
+	encoded, err := method.Inputs.Pack(values...)
+	if err != nil || !bytes.Equal(encoded, data[4:]) {
+		return errors.New("交易日誌的訂單資料不符")
+	}
+	var buyer common.Address
+	var key common.Hash
+	if record.Action == ActionEscrowFund {
+		buyer, err = types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
+		if err != nil {
+			return errors.New("無法驗證交易日誌的付款人")
+		}
+		key = values[0].([32]byte)
+	} else {
+		buyer = values[0].(common.Address)
+		key = values[1].([32]byte)
+	}
+	if record.OrderID == "" {
+		record.OrderID = OrderReference(key.Hex())
+	} else if _, err := ParseOrderReference(string(record.OrderID)); err != nil || record.OrderID.key() != key {
+		return errors.New("交易日誌的訂單編號與簽名不符")
+	}
+	record.EscrowBuyer = EVMAddress(buyer.Hex())
+	record.EscrowContract = EVMAddress(tx.To().Hex())
+	return nil
 }
 
 func isEscrowAction(action TransactionAction) bool {
@@ -140,7 +195,7 @@ func (s *Service) EscrowStatus(ctx context.Context) (*EscrowInfo, error) {
 }
 
 func queryEscrowOrder(ctx context.Context, caller ChainCaller, contract, buyer common.Address, reference OrderReference, block *big.Int) (*EscrowOrder, error) {
-	data, err := escrowABI.Pack("orders", buyer, crypto.Keccak256Hash([]byte(reference)))
+	data, err := escrowABI.Pack("orders", buyer, reference.key())
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +326,7 @@ func prepareEscrow(ctx context.Context, provider ChainQuoteProvider, from common
 			return nil, errors.New("授權額度不足，請先完成本次金額的 USDC 授權")
 		}
 		method = "fund"
-		data, err = escrowABI.Pack(method, crypto.Keccak256Hash([]byte(reference)), seller, amount)
+		data, err = escrowABI.Pack(method, reference.key(), seller, amount)
 	case ActionEscrowRelease, ActionEscrowRefund:
 		if order.State != "funded" {
 			return nil, errors.New("訂單未在託管中，請更新狀態；已完成的訂單不能重複操作")
@@ -287,7 +342,7 @@ func prepareEscrow(ctx context.Context, provider ChainQuoteProvider, from common
 			}
 			method = "refund"
 		}
-		data, err = escrowABI.Pack(method, buyer, crypto.Keccak256Hash([]byte(reference)))
+		data, err = escrowABI.Pack(method, buyer, reference.key())
 	default:
 		return nil, errors.New("不支援的託管操作")
 	}

@@ -1,6 +1,45 @@
 'use strict';
 // Source-message catalog: English and Simplified Chinese. Traditional Chinese is the source.
 window.FlowMessages = {
+  "關閉": ["Close", "关闭"],
+  "查詢不會送出交易。若需重試，會沿用原交易，不會建立另一筆付款。": ["Checking does not send a transaction. Retrying uses the original transaction without creating another payment.", "查询不会发送交易。若需重试，会沿用原交易，不会创建另一笔付款。"],
+  "無法讀取伺服器回應，請稍後再試。": [
+    "Could not read the server response. Please try again later.",
+    "无法读取服务器响应，请稍后再试。"
+  ],
+  "查看訂單": [
+    "View order",
+    "查看订单"
+  ],
+  "查看所有交易": [
+    "View all transactions",
+    "查看所有交易"
+  ],
+  "這筆訂單屬於其他託管合約，無法在目前合約操作。": [
+    "This order belongs to another escrow contract and cannot be managed here.",
+    "这笔订单属于其他托管合约，无法在当前合约操作。"
+  ],
+  "查詢原交易": [
+    "Check original transaction",
+    "查询原交易"
+  ],
+  "重試原交易": [
+    "Retry original transaction",
+    "重试原交易"
+  ],
+  "交易結果待確認。請先查詢原交易，不要重新建立付款。": [
+    "The transaction result is unknown. Check the original transaction before creating another payment.",
+    "交易结果待确认。请先查询原交易，不要重新创建付款。"
+  ],
+  "尚未找到原交易，仍無法確認結果。請稍後再查，或重試原交易。": [
+    "The original transaction was not found yet. Check again later or retry the original transaction.",
+    "尚未找到原交易，仍无法确认结果。请稍后再查，或重试原交易。"
+  ],
+  "暫時無法查詢原交易。請稍後再查，不要建立另一筆付款。": [
+    "Could not check the original transaction. Try checking later before creating another payment.",
+    "暂时无法查询原交易。请稍后再查，不要创建另一笔付款。"
+  ],
+
   "送出時狀態": ["Submission status", "提交时状态"],
   "智慧合約": ["Smart contract", "智能合约"],
   "ETH 存入與取回": ["Deposit and withdraw ETH", "ETH 存入与取回"],

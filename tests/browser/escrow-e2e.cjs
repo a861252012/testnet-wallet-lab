@@ -150,15 +150,17 @@ const { chromium } = require('playwright');
     await buyer.locator('#escrow-release').click();
     await buyer.locator('#send-confirmation').waitFor({state:'visible'});
     assert.match(await buyer.locator('#quote-details').textContent(),/託管合約 → 收款人/);
-    // Lose the HTTP response after the Go backend signs and sends. Repeating confirms the same quote.
+    // A proxy replaces the response after Go signs and sends. Retrying confirms the same quote.
     let originalHash;
     await buyer.route('**/api/wallet/send',async route=>{
       const response=await route.fetch();const transaction=await response.json();originalHash=transaction.hash;
-      await route.abort('failed');
+      await route.fulfill({status:502,contentType:'text/html',body:'<!DOCTYPE html><title>Bad Gateway</title>'});
     },{times:1});
     await buyer.locator('#send-password').fill(process.env.E2E_PASSWORD);
     await buyer.locator('#confirm-send-button').click();
     await buyer.locator('#confirm-error').waitFor({state:'visible'});
+    assert.match(await buyer.locator('#confirm-error').textContent(),/交易結果待確認/);
+    assert.equal(await buyer.locator('#check-send-history').isVisible(),true);
     assert.equal(await buyer.locator('#send-confirmation').isVisible(),true);
     await buyer.waitForFunction(()=>!document.querySelector('#confirm-send-button').disabled);
     const recovered=await confirm(buyer,'escrow_release','3.25');

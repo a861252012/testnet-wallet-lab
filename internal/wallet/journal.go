@@ -16,6 +16,7 @@ import (
 )
 
 type journalRecordDisk struct {
+	OrderID   string `json:"orderId,omitempty"`
 	Finalized bool   `json:"finalized,omitempty"`
 	Hash      string `json:"hash"`
 	QuoteID   string `json:"quoteId"`
@@ -73,6 +74,7 @@ func journalRecordFromDisk(stored *journalRecordDisk, chainID int64) (*JournalRe
 		version = 1
 	}
 	record := &JournalRecord{
+		OrderID:   OrderReference(stored.OrderID),
 		Finalized: stored.Finalized, Hash: hash, QuoteID: quoteID, State: state,
 		To: to, Amount: stored.Amount, AmountRaw: stored.AmountRaw, Symbol: stored.Symbol,
 		Action: action, Nonce: stored.Nonce, SignedRaw: stored.SignedRaw, CreatedAt: stored.CreatedAt,
@@ -90,6 +92,7 @@ func journalRecordToDisk(record *JournalRecord) *journalRecordDisk {
 		return nil
 	}
 	return &journalRecordDisk{
+		OrderID:   string(record.OrderID),
 		Finalized: record.Finalized, Hash: string(record.Hash), QuoteID: string(record.QuoteID), State: string(record.State),
 		To: string(record.To), Amount: record.Amount, AmountRaw: record.AmountRaw, Symbol: record.Symbol,
 		Action: string(record.Action), Nonce: record.Nonce, SignedRaw: record.SignedRaw, CreatedAt: record.CreatedAt,
@@ -129,7 +132,7 @@ func validateJournalRecord(record *JournalRecord, chainID int64) error {
 	if tx.UnmarshalBinary(raw) != nil || tx.Hash().Hex() != string(record.Hash) || tx.ChainId().Cmp(big.NewInt(chainID)) != 0 {
 		return errors.New("交易日誌的簽名資料不符")
 	}
-	return nil
+	return restoreEscrowJournal(record, &tx)
 }
 
 func isMinedJournalState(state JournalState) bool {
@@ -343,6 +346,7 @@ func (jm *JournalManager) ListHistory() []HistoryItem {
 	items := make([]HistoryItem, len(records))
 	for i, r := range records {
 		items[i] = HistoryItem{
+			OrderID: string(r.OrderID), EscrowBuyer: string(r.EscrowBuyer), EscrowContract: string(r.EscrowContract),
 			Hash: string(r.Hash), Finalized: r.Finalized, QuoteID: string(r.QuoteID),
 			State:         string(r.State),
 			To:            string(r.To),

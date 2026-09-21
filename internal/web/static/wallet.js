@@ -30,7 +30,14 @@
       options.body = JSON.stringify(body);
     }
     const response = await fetch(networkPrefix + path, options);
-    const data = await response.json();
+    let data;
+    try { data = await response.json(); }
+    catch {
+      const error = new Error('無法讀取伺服器回應，請稍後再試。');
+      error.status = response.status;
+      throw error;
+    }
+    if (!data || typeof data !== 'object') throw new Error('無法讀取伺服器回應，請稍後再試。');
     if (!response.ok) {
       const error = new Error(data.error || '操作失敗，請稍後重試。');
       error.status = response.status;
@@ -103,7 +110,7 @@
     }
     if (!$('vault-history').children.length) $('vault-history').append(node('p', '尚無合約操作紀錄，完成存入或取回後會顯示在這裡。', 'muted'));
     const term = $('history-search').value.trim().toLowerCase();
-    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.symbol,tx.amount,actionLabels[tx.action],stateLabels[tx.state],window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
+    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.orderId,tx.symbol,tx.amount,actionLabels[tx.action],stateLabels[tx.state],window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
     const list = $('wallet-history');
     list.replaceChildren();
     if (historyRefreshError) list.append(node('p', historyRefreshError, 'error'));
@@ -117,6 +124,7 @@
       if (label) { const named = node('p', label); named.translate = false; summary.append(named); }
       const inspect = node('button','交易詳情','secondary');inspect.type='button';inspect.addEventListener('click',()=>{$('diagnostic-hash').value=tx.hash;location.hash='diagnostics-panel';$('diagnose-tx').click();});expanded.append(inspect);
       summary.append(node('strong', actionLabels[tx.action] || '資產操作'), node('p', time(tx.createdAt)));
+      if (tx.orderId && tx.escrowBuyer) summary.append(escrowHistoryButton(tx));
       expanded.append(node('p', `${tx.action === 'approve' ? '被授權地址' : '收款人'} ${tx.to}`, 'mono'), explorer('tx', tx.hash));
       const amount = node('div', '', 'history-amount');
       amount.append(node('strong', `${tx.amount} ${tx.symbol}`), document.createElement('br'), node('span', stateLabels[tx.state] || '狀態待確認', `state-badge${tx.state === 'succeeded' ? '' : tx.state === 'reverted' ? ' danger' : ' warning'}`));
@@ -404,22 +412,53 @@
   try {
     const draft = JSON.parse(sessionStorage.getItem(escrowDraftKey) || 'null');
     if (draft) for (const [key,id] of Object.entries({reference:'escrow-reference',seller:'escrow-seller',amount:'escrow-amount',buyer:'escrow-lookup-buyer',lookup:'escrow-lookup-reference'})) {
-      if (typeof draft[key] === 'string') $(id).value = draft[key].slice(0,64);
+      if (typeof draft[key] === 'string') $(id).value = draft[key].slice(0,66);
     }
   } catch {}
   function setEscrowBusy(busy) {
     escrowBusy = busy;
     for (const id of ['escrow-fund-preview','escrow-lookup','escrow-release','escrow-refund','escrow-refresh','escrow-reference','escrow-seller','escrow-amount','escrow-lookup-buyer','escrow-lookup-reference']) $(id).disabled = busy;
+    for (const button of document.querySelectorAll('button[data-order-id]')) button.disabled = busy;
   }
   function renderEscrowHistory() {
-    const rows = historySnapshot.filter(tx => tx.action?.startsWith('escrow_') || tx.action === 'approve' && tx.to?.toLowerCase() === escrowInfo?.contract?.toLowerCase()).slice(0,5);
+    const rows = historySnapshot.filter(tx => tx.escrowContract?.toLowerCase() === escrowInfo?.contract?.toLowerCase() && tx.orderId || tx.action === 'approve' && tx.to?.toLowerCase() === escrowInfo?.contract?.toLowerCase()).slice(0,5);
     $('escrow-history').replaceChildren();
     for (const tx of rows) {
       const row = node('p');
       row.append(node('strong',actionLabels[tx.action] || tx.action),node('span',` · ${tx.amount} USDC · `),node('span',stateLabels[tx.state] || '狀態待確認'),document.createTextNode(' '),explorer('tx',tx.hash));
+      if (tx.orderId && tx.escrowBuyer) {
+        const reference = node('span',orderKeyLabel(tx.orderId));
+        reference.translate = false;
+        row.append(document.createTextNode(' · '),reference,document.createTextNode(' '),escrowHistoryButton(tx));
+      }
       $('escrow-history').append(row);
     }
     if (!rows.length) $('escrow-history').append(node('p','完成授權或付款後，交易紀錄會顯示在這裡。','muted'));
+  }
+  function orderKeyLabel(reference) {
+    return /^0x[0-9a-fA-F]{64}$/.test(reference) ? reference.slice(0,10) + '…' + reference.slice(-6) : reference;
+  }
+  function escrowHistoryButton(tx) {
+    const button = node('button','查看訂單','secondary');
+    button.type = 'button';
+    button.dataset.orderId = tx.orderId;
+    button.addEventListener('click',async () => {
+      if (sending || escrowBusy) return;
+      button.disabled = true;
+      try {
+        // Load the configured contract before using a record from this account's history.
+        await selectContractTab(true);
+        location.hash = 'vault-panel';
+        if (!escrowInfo?.enabled || tx.escrowContract.toLowerCase() !== escrowInfo.contract.toLowerCase()) {
+          showWalletError('escrow-error',new Error('這筆訂單屬於其他託管合約，無法在目前合約操作。'));
+          return;
+        }
+        $('escrow-lookup-buyer').value = tx.escrowBuyer;
+        $('escrow-lookup-reference').value = tx.orderId;
+        await lookupEscrow();
+      } finally { button.disabled = false; }
+    });
+    return button;
   }
   async function refreshEscrow() {
     if (escrowBusy || !walletState?.exists || walletState.chainId !== 11155111) return;
@@ -531,7 +570,7 @@
       $(id).setAttribute('aria-selected',String(selected));
       $(id).tabIndex = selected ? 0 : -1;
     }
-    if (escrow) refreshEscrow();
+    if (escrow) return refreshEscrow();
   }
   for (const id of ['contract-tab-vault','contract-tab-escrow']) {
     $(id).addEventListener('click',()=>selectContractTab(id==='contract-tab-escrow'));
@@ -656,6 +695,11 @@
     $('quote-details').append(raw);
     $('approval-warning').hidden = data.action !== 'approve';
     $('confirm-error').hidden = true;
+    $('check-send-history').hidden = true;
+    $('check-send-history').className = 'secondary';
+    $('confirm-send-button').className = 'submit-button';
+    $('cancel-send').textContent = '取消';
+    $('confirm-send-button').textContent = `簽署並送出至 ${networkName}`;
     $('send-password').value = '';
     $('send-confirmation').showModal();
     $('cancel-send').focus();
@@ -663,42 +707,73 @@
   $('cancel-send').addEventListener('click', () => { if (!sending) $('send-confirmation').close(); });
   $('send-confirmation').addEventListener('cancel', event => { if (sending) event.preventDefault(); });
   $('send-confirmation').addEventListener('close', () => { $('send-password').value = ''; quote = undefined; });
+  async function completeSend(data, submittedQuote) {
+    if (flow && submittedQuote.flowID === flow.id) { flow.pending = {quoteID:submittedQuote.id,hash:data.hash,kind:submittedQuote.flowKind}; saveFlow(); }
+    $('send-confirmation').close();
+    showSent(data);
+    if (submittedQuote.escrow || submittedQuote.escrowApproval) {
+      const payment = submittedQuote.escrow || submittedQuote.escrowApproval;
+      $('escrow-lookup-buyer').value = payment.buyer;
+      $('escrow-lookup-reference').value = payment.orderId;
+      $('escrow-next-step').textContent = submittedQuote.escrowApproval ? '授權已送出。等紀錄顯示成功，再按「核對付款資料」付款。' : '交易已送出，請查看訂單狀態和付款紀錄。';
+      saveEscrowDraft();
+    }
+    await refreshWallet();
+    await refreshActivity();
+    if (submittedQuote.escrow && !$('escrow-order').hidden) $('escrow-order').focus();
+    if ((submittedQuote.action || '').startsWith('vault_') && !$('vault-history-section').hidden) {
+      $('vault-history-section').tabIndex = -1;
+      $('vault-history-section').focus();
+    }
+  }
+  $('check-send-history').addEventListener('click',async () => {
+    if (sending || !quote) return;
+    const original = quote;
+    sending = true;
+    $('check-send-history').disabled = $('confirm-send-button').disabled = $('cancel-send').disabled = true;
+    try {
+      const history = await walletRequest('/api/wallet/history');
+      renderHistory(history.transactions,history.refreshError || '');
+      const transaction = history.transactions.find(tx => tx.quoteId === original.id);
+      if (transaction) await completeSend(transaction,original);
+      else showWalletError('confirm-error',new Error('尚未找到原交易，仍無法確認結果。請稍後再查，或重試原交易。'));
+    } catch { showWalletError('confirm-error',new Error('暫時無法查詢原交易。請稍後再查，不要建立另一筆付款。')); }
+    finally {
+      sending = false;
+      $('check-send-history').disabled = $('confirm-send-button').disabled = $('cancel-send').disabled = false;
+    }
+  });
   $('confirm-send-form').addEventListener('submit', async event => {
     event.preventDefault();
     if (sending || !quote) return;
-    if (Date.now() >= new Date(quote.expiresAt).getTime()) { showWalletError('confirm-error', new Error('報價已過期，請取消並重新預估。')); return; }
+    if (!quote.sendUncertain && Date.now() >= new Date(quote.expiresAt).getTime()) { showWalletError('confirm-error', new Error('報價已過期，請取消並重新預估。')); return; }
     sending = true;
     $('confirm-send-button').disabled = true;
     $('cancel-send').disabled = true;
+    $('check-send-history').disabled = true;
     $('confirm-send-button').textContent = '正在簽署與廣播…';
     $('confirm-error').hidden = true;
     const submittedQuote = quote;
     try {
       if(flow && submittedQuote.flowID===flow.id){flow.pending={quoteID:submittedQuote.id,hash:'',kind:submittedQuote.flowKind};saveFlow();}
       const data = await walletRequest('/api/wallet/send', { quoteId: quote.id, password: $('send-password').value });
-      if (flow && submittedQuote.flowID === flow.id) { flow.pending = {quoteID:submittedQuote.id,hash:data.hash,kind:submittedQuote.flowKind}; saveFlow(); }
-      $('send-confirmation').close();
-      showSent(data);
-      if (submittedQuote.escrow || submittedQuote.escrowApproval) {
-        const payment = submittedQuote.escrow || submittedQuote.escrowApproval;
-        $('escrow-lookup-buyer').value = payment.buyer;
-        $('escrow-lookup-reference').value = payment.orderId;
-        $('escrow-next-step').textContent = submittedQuote.escrowApproval ? '授權已送出。等紀錄顯示成功，再按「核對付款資料」付款。' : '交易已送出，請查看訂單狀態和付款紀錄。';
-        saveEscrowDraft();
-      }
-      await refreshWallet();
-      await refreshActivity();
-      if (submittedQuote.escrow && !$('escrow-order').hidden) $('escrow-order').focus();
-      if ((submittedQuote.action || '').startsWith('vault_') && !$('vault-history-section').hidden) {
-        $('vault-history-section').tabIndex = -1;
-        $('vault-history-section').focus();
-      }
+      if (!/^0x[0-9a-fA-F]{64}$/.test(data.hash)) throw new Error('無法讀取伺服器回應，請稍後再試。');
+      await completeSend(data,submittedQuote);
     } catch (error) {
       if (error.code === 'send_rejected' && flow && flow.id === submittedQuote.flowID && flow.pending?.quoteID === submittedQuote.id) {
         flow.pending = undefined;
         saveFlow();
       }
-      showWalletError('confirm-error', error);
+      if (error.code === 'send_rejected') showWalletError('confirm-error',error);
+      else {
+        submittedQuote.sendUncertain = true;
+        $('check-send-history').hidden = false;
+        $('check-send-history').className = 'submit-button';
+        $('confirm-send-button').className = 'secondary';
+        $('cancel-send').textContent = '關閉';
+        $('confirmation-fee-hint').textContent = '查詢不會送出交易。若需重試，會沿用原交易，不會建立另一筆付款。';
+        showWalletError('confirm-error',new Error('交易結果待確認。請先查詢原交易，不要重新建立付款。'));
+      }
     }
     finally {
       $('send-password').value = '';
@@ -706,7 +781,8 @@
       renderFlow();
       $('confirm-send-button').disabled = false;
       $('cancel-send').disabled = false;
-      $('confirm-send-button').textContent = `簽署並送出至 ${networkName}`;
+      $('check-send-history').disabled = false;
+      $('confirm-send-button').textContent = submittedQuote.sendUncertain ? '重試原交易' : `簽署並送出至 ${networkName}`;
     }
   });
   async function refreshTokens() {

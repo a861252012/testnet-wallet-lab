@@ -331,19 +331,22 @@ func newEVMSendResponse(result *wallet.SendResponse) *evmSendResponse {
 }
 
 type evmHistoryItem struct {
-	QuoteID       string `json:"quoteId"`
-	ReplacedBy    string `json:"replacedBy,omitempty"`
-	Finalized     bool   `json:"finalized"`
-	Hash          string `json:"hash"`
-	State         string `json:"state"`
-	To            string `json:"to"`
-	Amount        string `json:"amount"`
-	Symbol        string `json:"symbol"`
-	Action        string `json:"action"`
-	CreatedAt     string `json:"createdAt"`
-	Confirmations string `json:"confirmations,omitempty"`
-	FeeETH        string `json:"feeEth,omitempty"`
-	Error         string `json:"error,omitempty"`
+	OrderID        string `json:"orderId,omitempty"`
+	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
+	EscrowContract string `json:"escrowContract,omitempty"`
+	QuoteID        string `json:"quoteId"`
+	ReplacedBy     string `json:"replacedBy,omitempty"`
+	Finalized      bool   `json:"finalized"`
+	Hash           string `json:"hash"`
+	State          string `json:"state"`
+	To             string `json:"to"`
+	Amount         string `json:"amount"`
+	Symbol         string `json:"symbol"`
+	Action         string `json:"action"`
+	CreatedAt      string `json:"createdAt"`
+	Confirmations  string `json:"confirmations,omitempty"`
+	FeeETH         string `json:"feeEth,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 type evmHistoryResponse struct {
@@ -360,6 +363,7 @@ func newEVMHistoryResponse(history *wallet.HistoryResponse) *evmHistoryResponse 
 		result.Transactions = make([]evmHistoryItem, len(history.Transactions))
 		for i, item := range history.Transactions {
 			result.Transactions[i] = evmHistoryItem{
+				OrderID: item.OrderID, EscrowBuyer: item.EscrowBuyer, EscrowContract: item.EscrowContract,
 				QuoteID: item.QuoteID, ReplacedBy: item.ReplacedBy, Finalized: item.Finalized,
 				Hash: item.Hash, State: item.State, To: item.To, Amount: item.Amount,
 				Symbol: item.Symbol, Action: item.Action, CreatedAt: item.CreatedAt,

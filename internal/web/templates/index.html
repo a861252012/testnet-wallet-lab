@@ -127,11 +127,11 @@
 <div class="escrow-card"><details id="escrow-search"><summary>查詢訂單</summary>
 <form id="escrow-lookup-form">
 <label for="escrow-lookup-buyer">原付款人地址</label><input id="escrow-lookup-buyer" required="" pattern="0x[0-9a-fA-F]{40}" autocomplete="off" spellcheck="false"/>
-<label for="escrow-lookup-reference">要查詢的訂單編號</label><input id="escrow-lookup-reference" required="" maxlength="64" pattern="[A-Za-z0-9_-]{1,64}" autocomplete="off"/>
+<label for="escrow-lookup-reference">要查詢的訂單編號</label><input id="escrow-lookup-reference" required="" maxlength="66" pattern="(?:[A-Za-z0-9_-]{1,64}|0x[0-9a-fA-F]{64})" autocomplete="off"/>
 <button id="escrow-lookup" class="secondary" type="submit">查詢訂單</button>
 </form></details>
 </div>
-<div class="escrow-card"><h3>付款紀錄</h3><div id="escrow-history" role="status"></div></div>
+<div class="escrow-card"><h3>付款紀錄</h3><div id="escrow-history" role="status"></div><a href="#history-panel">查看所有交易</a></div>
 </div>
 </div>
 </section>
@@ -147,7 +147,7 @@
 <section class="panel" data-view="settings-panel" data-view-hidden="true"><details class="advanced-info"><summary>說明與診斷</summary><a href="#first-transaction">操作指南</a> · <a href="#diagnostics-panel">開發者診斷</a></details><details><summary>安全性：更改錢包密碼</summary><h2>更改密碼</h2><p>更改後請重新下載加密備份，舊備份仍使用舊密碼。</p><form id="password-form"><label for="old-password">目前密碼</label><input autocomplete="current-password" id="old-password" required="" type="password"/><label for="new-password">新密碼（12–128 字元）</label><input autocomplete="new-password" id="new-password" required="" type="password"/><label for="new-password-confirm">再次輸入新密碼</label><input autocomplete="new-password" id="new-password-confirm" required="" type="password"/><button class="secondary" type="submit">更新密碼</button><p id="password-feedback" role="status"></p></form></details></section>
 <section class="panel" data-view="overview history-panel" data-view-hidden="false" id="history-panel" tabindex="-1"><a class="history-all secondary" href="#history-panel">查看全部交易 →</a><div class="panel-heading"><span class="panel-icon"><svg aria-hidden="true" class="icon"><use href="#i-receipt"></use></svg></span><div><p class="eyebrow">TRANSACTION ACTIVITY</p><h2>交易紀錄</h2></div></div><p class="panel-description">由此錢包送出的交易與最新查核狀態。</p><label for="history-search">搜尋交易（地址、雜湊、資產或操作）</label><input autocomplete="off" id="history-search" placeholder="輸入關鍵字" type="search"/><div id="wallet-history" role="status"><p class="muted">尚無交易。</p></div></section>
 </section>
-<dialog aria-labelledby="confirm-title" id="send-confirmation"><form id="confirm-send-form"><div class="dialog-heading"><div><p class="eyebrow">REVIEW BEFORE SIGNING</p><h2 id="confirm-title">確認這筆交易</h2></div><button class="secondary" id="cancel-send" type="button">取消</button></div><div id="quote-details"></div><p class="error" hidden="" id="approval-warning">這筆操作會授權指定地址花費你的代幣，並不是轉帳。請確認被授權地址值得信任。</p><p class="field-hint" id="confirmation-fee-hint">最高費用是上限，實際手續費依交易執行結果而定。報價逾時需重新預估。</p><label for="send-password">錢包密碼</label><input autocomplete="current-password" id="send-password" required="" type="password"/><p class="field-error" hidden="" id="confirm-error" role="alert"></p><button class="submit-button" id="confirm-send-button" type="submit">簽署並送出至 Sepolia</button></form></dialog>
+<dialog aria-labelledby="confirm-title" id="send-confirmation"><form id="confirm-send-form"><div class="dialog-heading"><div><p class="eyebrow">REVIEW BEFORE SIGNING</p><h2 id="confirm-title">確認這筆交易</h2></div><button class="secondary" id="cancel-send" type="button">取消</button></div><div id="quote-details"></div><p class="error" hidden="" id="approval-warning">這筆操作會授權指定地址花費你的代幣，並不是轉帳。請確認被授權地址值得信任。</p><p class="field-hint" id="confirmation-fee-hint">最高費用是上限，實際手續費依交易執行結果而定。報價逾時需重新預估。</p><p class="field-error" hidden="" id="confirm-error" role="alert"></p><button class="secondary" id="check-send-history" type="button" hidden="">查詢原交易</button><label for="send-password">錢包密碼</label><input autocomplete="current-password" id="send-password" required="" type="password"/><button class="submit-button" id="confirm-send-button" type="submit">簽署並送出至 Sepolia</button></form></dialog>
 <div class="panel" hidden="" id="send-feedback" role="status"></div>
 <section class="panel" data-view="watch-panel" data-view-hidden="true" id="watch-panel" tabindex="-1">
 <p class="eyebrow">EXPLORE WITHOUT A KEY</p><h2>唯讀觀察</h2><p>只需公開地址，即可查詢資產與鏈上收據。這裡不會建立錢包或發送交易。</p>

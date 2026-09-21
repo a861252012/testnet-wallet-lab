@@ -533,6 +533,9 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
+	if quote.Escrow != nil {
+		record.OrderID = OrderReference(quote.Escrow.OrderID)
+	}
 
 	// PREPARE / SIGN / BROADCAST:
 	// Must persist atomically before any RPC broadcast! No send if persistence fails!

@@ -367,19 +367,22 @@ type SendResponse struct {
 }
 
 type HistoryItem struct {
-	QuoteID       string `json:"quoteId"`
-	ReplacedBy    string `json:"replacedBy,omitempty"`
-	Finalized     bool   `json:"finalized"`
-	Hash          string `json:"hash"`
-	State         string `json:"state"`
-	To            string `json:"to"`
-	Amount        string `json:"amount"`
-	Symbol        string `json:"symbol"`
-	Action        string `json:"action"`
-	CreatedAt     string `json:"createdAt"`
-	Confirmations string `json:"confirmations,omitempty"`
-	FeeETH        string `json:"feeEth,omitempty"`
-	Error         string `json:"error,omitempty"`
+	OrderID        string `json:"orderId,omitempty"`
+	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
+	EscrowContract string `json:"escrowContract,omitempty"`
+	QuoteID        string `json:"quoteId"`
+	ReplacedBy     string `json:"replacedBy,omitempty"`
+	Finalized      bool   `json:"finalized"`
+	Hash           string `json:"hash"`
+	State          string `json:"state"`
+	To             string `json:"to"`
+	Amount         string `json:"amount"`
+	Symbol         string `json:"symbol"`
+	Action         string `json:"action"`
+	CreatedAt      string `json:"createdAt"`
+	Confirmations  string `json:"confirmations,omitempty"`
+	FeeETH         string `json:"feeEth,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 type HistoryResponse struct {
@@ -388,21 +391,25 @@ type HistoryResponse struct {
 }
 
 type JournalRecord struct {
-	Finalized     bool
-	Hash          TransactionHash
-	QuoteID       QuoteID
-	State         JournalState
-	To            EVMAddress
-	Amount        string
-	AmountRaw     string
-	Symbol        string
-	Action        TransactionAction
-	Nonce         uint64
-	SignedRaw     string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Confirmations string
-	FeeETH        string
-	Error         string
-	Version       uint64
+	OrderID OrderReference
+	// These addresses are derived from SignedRaw when loading or appending.
+	EscrowBuyer    EVMAddress
+	EscrowContract EVMAddress
+	Finalized      bool
+	Hash           TransactionHash
+	QuoteID        QuoteID
+	State          JournalState
+	To             EVMAddress
+	Amount         string
+	AmountRaw      string
+	Symbol         string
+	Action         TransactionAction
+	Nonce          uint64
+	SignedRaw      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	Confirmations  string
+	FeeETH         string
+	Error          string
+	Version        uint64
 }

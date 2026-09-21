@@ -421,6 +421,7 @@ const server = http.createServer(async (req,res)=>{
   await require('./history-freshness.cjs')(context, base);
   await require('./workspace-regression.cjs')(page);
   await require('./escrow-polling.cjs')(page);
+  await require('./send-recovery.cjs')(page);
   console.log('PASS: transaction and block queries reject stale successes/errors and clear invalidated results.');
   await view('watch-panel');await page.locator('#watch-address').fill(address);await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('1 ETH'));
   balanceFailure=true;await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('unavailable'));balanceFailure=false;

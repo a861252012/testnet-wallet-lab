@@ -182,7 +182,7 @@ async function runBrowserE2E(baseUrl, password, vaultContract) {
     // Launch through Go E2E test runner
     console.log('[INFO] Launching local Go test server and simulated EVM ETHVault with -race...');
     const rootDir = path.resolve(__dirname, '../..');
-    const child = spawn('go', ['test', '-race', '-count=1', '-v', '-run', '^TestE2E(Vault|Escrow)Browser$', './tests/e2e'], {
+    const child = spawn('go', ['test', '-race', '-count=1', '-v', '-run', '^TestE2E(VaultBrowser|Escrow(Browser|OrderRecovery))$', './tests/e2e'], {
       cwd: rootDir,
       stdio: 'inherit',
       env: { ...process.env, RUN_BROWSER_E2E: '1' },
