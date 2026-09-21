@@ -11,6 +11,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Reject tracked files covered by ignore rules
+        shell: bash
+        run: |
+          ignored=$(git ls-files --cached --ignored --exclude-standard)
+          if [[ -n "$ignored" ]]; then
+            printf 'Remove these ignored files from Git tracking:\n%s\n' "$ignored"
+            exit 1
+          fi
       - run: docker build -t flowledger-test .
       - run: docker run --rm -v "$PWD:/app:ro" -v test_modules:/go/pkg/mod flowledger-test go mod download
       - run: mkdir -p /tmp/flowledger-results

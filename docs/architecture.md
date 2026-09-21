@@ -1,4 +1,4 @@
-# Testnet Wallet Lab architecture and interview guide
+# Testnet Wallet Lab architecture
 
 ```mermaid
 flowchart LR
@@ -23,7 +23,7 @@ flowchart LR
  TRPC --> UI
 ```
 
-## What an interviewer can verify
+## Transaction behavior and evidence
 
 | Question | Evidence to inspect |
 |---|---|
@@ -37,17 +37,15 @@ flowchart LR
 
 The local browser is a trusted UI, but input remains untrusted: chain, contract, recipient, amount and operation are validated server-side. RPC endpoints are a trust boundary; fallback provides transport recovery, not independent consensus. Keys remain in the Go process during signing and cannot be guaranteed absent from every garbage-collected memory copy.
 
-This is a single-user local portfolio prototype. EVM, Solana and TRON are separate implementations with different recovery/capacity limits. There is no public custody service, audited cryptography claim, fiat valuation, bridge or claim of production readiness.
+This is a single-user local testnet prototype. EVM, Solana and TRON are separate implementations with different recovery/capacity limits. There is no public custody service, audited cryptography claim, fiat valuation, bridge or claim of production readiness.
 
-## Precise implementation and interview boundaries
+## Implementation boundaries
 
 - **Duplicate request versus duplicate business payment:** [`Service.Send`](../internal/wallet/service.go) holds `sendMu` and calls `FindByQuoteID` before signing. Reusing one quote returns its journal record; [`FindByQuoteID`](../internal/wallet/journal.go) includes archives. This does not identify the same business payment across different quotes, installations or lost journals. The single-in-flight rule does not replace durable upstream business deduplication.
-- **Crash versus returned broadcast error:** `Send` persists `pending` with signed bytes before calling RPC. Only after RPC returns does it attempt `submitted` or `broadcast_unknown`. A crash before that update may leave `pending`. `AppendAtomic` returns the initial version; `UpdateStateAtomicIfVersion` prevents an older broadcast result from overwriting a concurrent newer record. This is not a rule forbidding legitimate reorg updates. See the [demo evidence matrix](demo-script.md#recovery-evidence-matrix).
+- **Crash versus returned broadcast error:** `Send` persists `pending` with signed bytes before calling RPC. Only after RPC returns does it attempt `submitted` or `broadcast_unknown`. A crash before that update may leave `pending`. `AppendAtomic` returns the initial version; `UpdateStateAtomicIfVersion` prevents an older broadcast result from overwriting a concurrent newer record. This is not a rule forbidding legitimate reorg updates. See the [recovery evidence matrix](demo-script.md#recovery-evidence-matrix).
 - **OP fees:** [`RollupFee`](../internal/chain/opfees.go) estimates L1 data plus operator charges; `ReceiptFee` combines execution cost, receipt `l1Fee`, and an operator query bound to the receipt block hash. Operator fees were introduced by Isthmus. The estimate is not a type-2 on-chain cap on total charges. [Official fee specification](https://docs.optimism.io/op-stack/transactions/fees).
-- **KMS is a future integration, not implemented capability:** AWS KMS returns DER-encoded ECDSA signatures. A geth-style signing interface may consume `[R || S || recovery-id]`, while EIP-1559 serializes `signature_y_parity`, `signature_r` and `signature_s` as separate RLP fields. An adapter would need digest handling, DER decoding, low-S normalization, recovery-parity validation against the expected public key, and real service failure tests. A local mock does not establish this integration. [AWS Sign](https://docs.aws.amazon.com/kms/latest/APIReference/API_Sign.html), [EIP-1559](https://eips.ethereum.org/EIPS/eip-1559), [EIP-2](https://eips.ethereum.org/EIPS/eip-2).
+- **KMS:** Remote signing and KMS integration are not implemented; signing uses the local encrypted keystore.
 - **TRON encoding:** constructing transaction bytes locally avoids relying on a remote transaction builder for recipient and contract parameters. TAPOS data, broadcast delivery and receipt observations still depend on RPC responses; local encoding does not eliminate all RPC or transport attacks.
-
-Suggested portfolio positioning: 「後端工程師｜PHP／Laravel 經驗，透過 Go 多鏈測試網錢包展示交易簽署、狀態追蹤與故障復原能力。」 Employment duration must come from the actual résumé. Testnet evidence does not establish production custody experience, throughput, a service SLA or a seniority level.
 
 ## Boundary inventory
 

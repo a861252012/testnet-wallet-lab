@@ -44,4 +44,4 @@ RUN_BROWSER_E2E=1 go test -race -count=1 -v -run '^TestE2EVaultBrowser$' ./tests
 - Service／store 分工、前端拆檔和大量歷史紀錄的效能測試，留待相關功能調整時處理，避免一次改動太多交易邏輯。
 - 公開 demo 仍有 20 個帳戶名額，封存帳戶也算在內。註冊限制與名額回收需要另訂規則，這次沒有自動刪除帳戶或關閉註冊。
 - 部署工具還有 Python，尚未完成 Go 遷移。`go-style.md` 已改成如實說明。
-- 專用 Deep Security Scan 上輪因缺少 managed filesystem permission profile 而無法啟動，這次沒有把它列為已完成的資安掃描。
+- 這次未完成獨立資安掃描；上述功能與回歸測試不能當成完整資安審查。

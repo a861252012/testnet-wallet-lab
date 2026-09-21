@@ -6,11 +6,11 @@ Detailed operating information retained from the original README.
 
 **Go 多鏈測試網錢包：從交易意圖、廣播前持久化，到廣播不確定時的恢復與收據核對。**
 
-[三分鐘展示腳本](demo-script.md) · [交易驗收紀錄](onchain-acceptance-2026-09-15.md) · [程序中止恢復驗證](process-recovery.md)
+[交易恢復驗證](demo-script.md) · [9 月 15 日歷史驗收](onchain-acceptance-2026-09-15.md) · [9 月 16 日後續驗收](onchain-acceptance-2026-09-16.md) · [程序中止恢復驗證](process-recovery.md)
 
 ## Why this project
 
-FlowLedger 不是以「支援多少條鏈」為主要目標，而是用一個可執行的錢包原型探索後端交易系統最難處理的邊界：
+Testnet Wallet Lab 處理以下交易生命週期問題：
 
 - RPC 可能已收到交易，但 HTTP response 在回程中遺失。
 - 同一個使用者操作可能因重試、並發請求或程序重啟而被處理多次。
@@ -21,7 +21,7 @@ FlowLedger 不是以「支援多少條鏈」為主要目標，而是用一個可
 
 ### Engineering highlights
 
-| 問題 | FlowLedger 的處理方式 | 可重跑證據 |
+| 問題 | 處理方式 | 可重跑證據 |
 | --- | --- | --- |
 | 廣播結果不確定 | 廣播前將 hash 與 signed raw transaction 原子寫入 journal；重試不重新簽署 | `TestUnknownBroadcastRestartReusesRaw` |
 | 並發重送 | 同一 quote 只簽署／廣播一次，後續請求回傳已有記錄 | `TestConcurrentSendSignsExactQuoteOnce` |
@@ -32,24 +32,22 @@ FlowLedger 不是以「支援多少條鏈」為主要目標，而是用一個可
 ### Scope and evidence
 
 - **已實作：** 五個 EVM 測試網、Solana Devnet 與 TRON Shasta 的獨立錢包流程；Sepolia 上的 WETH／Uniswap V3 交換流程。
-- **鏈上驗收：** 2026-09-15 的歷史快照包含 13 筆橫跨五個測試網的成功交易；Polygon 與 Solana outgoing acceptance 仍未完成。
+- **鏈上驗收：** [2026-09-15 歷史快照](onchain-acceptance-2026-09-15.md)記錄五個測試網共 13 筆成功交易；[2026-09-16 後續紀錄](onchain-acceptance-2026-09-16.md)補上 Polygon Amoy 與 Solana Devnet 各一筆原生幣轉帳。這些紀錄不代表目前版本已重新驗收。
 - **測試證據：** Go unit/integration tests、race detector、Mock RPC 與 process-kill recovery test。Mock 通過不代表真實鏈或 production 環境已驗證。
 - **刻意不宣稱：** mainnet、public multi-user custody、獨立安全稽核、SLA、RPC quorum 或 production readiness。
-
-> **Portfolio positioning:** 這是一個展示「後端交易一致性與故障復原」的 Web3 工程作品，而不是經稽核的生產級 custody 錢包。
 
 ## Quick overview
 
 - **交易可靠性**：簽署後先保存 journal 才廣播；相同 quote ID 重送沿用既有交易，明確重播使用原始簽名 bytes。
 - **狀態一致性**：以版本檢查避免慢查詢覆蓋新狀態；廣播逾時保留未知狀態，收據與 finality 分別核對。
 - **整合範圍**：五個 EVM 測試網，以及獨立 Solana Devnet、TRON Shasta 錢包；Uniswap V3 兌換限 Ethereum Sepolia。
-- **展示入口**：啟動後開啟 `/showcase`；目前沒有在此宣稱公開部署或已完成錄影。
+- **功能與證據入口**：啟動後開啟 `/showcase`。
 
 | 證據 | 能支持的結論 | 限制 |
 | --- | --- | --- |
 | 隔離 Go／瀏覽器測試 | Mock 條件下的交易及介面行為 | 不代表真實鏈執行成功 |
 | 程序中止恢復測試 | SIGKILL 後讀回 journal、維持 nonce 保護、重播相同交易 | 本機 Mock RPC；不證明停電耐久性 |
-| 2026-09-15 驗收紀錄 | 記錄五個測試網共 13 筆成功交易 | 歷史快照；Polygon／Solana 發送驗收仍未完成，詳見紀錄 |
+| [2026-09-15](onchain-acceptance-2026-09-15.md)／[2026-09-16](onchain-acceptance-2026-09-16.md) 驗收紀錄 | 依兩次歷史紀錄，七個測試網共 15 筆成功交易 | 不代表目前版本重新驗收，也未涵蓋所有功能與故障情境 |
 | GitHub Actions 定義 | 提供可重跑的 race／vet／coverage 與瀏覽器檢查流程 | 工作流程存在不等於遠端 CI 已通過；不宣稱未量測的覆蓋率 |
 
 A local **Go testnet wallet for Ethereum, Arbitrum, Base and OP Sepolia plus Polygon Amoy**, alongside independent **Solana Devnet SOL** and **TRON Shasta TRX/TRC-20 wallets** with separate accounts and per-network journals. Create or restore a wallet, receive test assets, preview fees, sign EIP-1559 transactions locally, and broadcast ETH / ERC-20 transfers and finite approvals. Wrap/unwrap ETH and WETH, swap WETH/test USDC through Uniswap V3, and reconstruct receipt-based activity with CSV export.
@@ -72,9 +70,9 @@ Amounts and networks are fixed by the server. EVM recipients must belong to the 
 
 See [button acceptance evidence and limits](test-faucet-2026-09-15.md).
 
-## Live transaction evidence
+## Historical transaction evidence
 
-The September 15 acceptance run completed **13 outgoing transactions across five testnets**: Ethereum Sepolia (native transfer, WETH wrap/unwrap, approvals, both WETH/USDC swap directions and USDC transfer), Base/OP/Arbitrum Sepolia (native transfers), and TRON Shasta (TRX and faucet test-USDT transfers). See [transaction links, results and limitations](onchain-acceptance-2026-09-15.md), or open `/showcase`. Polygon Amoy and Solana Devnet outgoing acceptance remains incomplete.
+The September 15 acceptance run completed **13 outgoing transactions across five testnets**: Ethereum Sepolia (native transfer, WETH wrap/unwrap, approvals, both WETH/USDC swap directions and USDC transfer), Base/OP/Arbitrum Sepolia (native transfers), and TRON Shasta (TRX and faucet test-USDT transfers). See [September 15 transaction links and limits](onchain-acceptance-2026-09-15.md). The [September 16 follow-up](onchain-acceptance-2026-09-16.md) records one native transfer each on Polygon Amoy and Solana Devnet, bringing those two historical records to 15 transactions across seven testnets. These dated results do not establish fresh acceptance of the current code or every supported operation.
 
 Recheck the published receipts without a wallet or signing:
 
@@ -135,7 +133,7 @@ Refreshing the wallet queries the configured default tokens and browser-saved to
 - ETH and token transactions use RPC gas estimation; failed estimation stops the operation. A quote binds action, recipient/spender, contract, calldata, nonce and fee caps for 120 seconds. The server rechecks nonce, funds and relevant token conditions before signing; it never silently raises an approved cap.
 - Signed raw bytes and hash are synced to disk **before** broadcast. Repeated sends of one quote return the same journal entry. Timeouts and ambiguous responses remain uncertain; they are not treated as proof that nothing was sent.
 - EVM deduplication is scoped to the same account/network and `quoteID`, including retained archives. Different quotes are not a business-level payment identity. An upstream payout service would need its own durable business key and request matching; an HTTP header alone would not provide that guarantee.
-- The initial durable EVM state is `pending`. A returned broadcast error leads to a version-checked `broadcast_unknown` update; success leads to `submitted`. A process stopped before that update may leave `pending`. Concurrent newer journal updates are preserved. These states do not establish whether a node received the transaction; see the [recovery demo and evidence limits](demo-script.md).
+- The initial durable EVM state is `pending`. A returned broadcast error leads to a version-checked `broadcast_unknown` update; success leads to `submitted`. A process stopped before that update may leave `pending`. Concurrent newer journal updates are preserved. These states do not establish whether a node received the transaction; see the [recovery checks and evidence limits](demo-script.md).
 - One outstanding nonce per account/network, with multiple replacement attempts allowed. Speed-up preserves the transaction payload; cancel signs a zero-value self-transfer at the same nonce. Both raise fee caps by at least 20% over known attempts and require a new preview/password confirmation. This local policy cannot guarantee node acceptance or inclusion; the original may win. A mined attempt resolves its nonce group, and a reorg can make it unresolved again.
 - The active journal holds up to 1,000 records. At 900 records, history refresh archives finalized records outside the latest 100 before shortening the active file. Archives retain signed records and quote IDs for restart/idempotency. If there are not enough finalized records, capacity errors remain explicit. Preserve all `archive-*.json` files with the wallet volume.
 - Background maintenance checks unfinalized records against canonical receipts. Finality is observed through the RPC `finalized` block tag and a canonical receipt-block hash recheck, never inferred from a confirmation threshold. RPC failures do not establish failure or finality. Finalized archives assume the chain does not violate finalized consensus; no local wallet can independently guarantee a remote node is truthful.
@@ -174,7 +172,7 @@ ETH → USDC guides wrap → finite approval (or reset when necessary) → swap.
 
 Address-book labels (100 maximum) and watch addresses (20 maximum) are browser-local and separated by EVM network. Labels are rendered as text and never substitute for the full confirmation address. The receive panel provides the canonical checksummed address with one-click copy; the sender must still verify the network. History search filters the locally indexed send history by address, hash, asset or action. Details link to canonical receipt diagnostics.
 
-The read-only observation area is available before wallet creation. Query native/token balances, a known transaction, or candidates in one specified finalized block. This never creates a signer or persistent index. It does not represent a full address transaction history. Diagnostics show endpoint numbers rather than provider URLs, HTTP transport counters and latency to response headers; counters reset with the process and are not a monitoring SLA. `/showcase` presents the portfolio and current local transaction evidence without claiming mock results are real transactions.
+The read-only observation area is available before wallet creation. Query native/token balances, a known transaction, or candidates in one specified finalized block. This never creates a signer or persistent index. It does not represent a full address transaction history. Diagnostics show endpoint numbers rather than provider URLs, HTTP transport counters and latency to response headers; counters reset with the process and are not a monitoring SLA. `/showcase` presents supported features and recorded transaction evidence, with mock checks labelled separately.
 
 ## Base and OP fees
 
@@ -232,14 +230,12 @@ The repository includes `go run ./cmd/send-and-verify` (also available through `
 
 ## Code and references
 
-- `cmd/flowledger`: startup, configuration, shutdown.
+- `cmd/testnet-wallet-lab`: startup, configuration, shutdown.
 - `internal/wallet`: mnemonic/keystore, exact amounts, ERC-20 ABI, quotes, signing, journal.
 - `internal/chain`: Sepolia RPC and receipt checks.
 - `internal/web`: HTTP guards and embedded vanilla HTML/CSS/JS.
 
-Go module: `github.com/a861252012/flowledger`. No frontend framework or Node build is required.
-
-Design guidance: [UI UX Pro Max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/tree/7f69fed6a2717900085f1bc3b263721f8ba025e2). Go and Web3 implementation guidance: [wshobson/agents](https://github.com/wshobson/agents/tree/a30778f8c4e6b0a87567941b7cca4f534bf642b6), selectively applied; these references are not security certifications.
+Go module: `github.com/a861252012/testnet-wallet-lab`. No frontend framework or Node build is required.
 
 Standards: [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawiki), [BIP-44](https://github.com/bitcoin/bips/blob/master/bip-0044.mediawiki), [EIP-1559](https://eips.ethereum.org/EIPS/eip-1559), [ERC-20](https://eips.ethereum.org/EIPS/eip-20).
 
@@ -250,7 +246,7 @@ npm ci --prefix tests/browser
 cd tests/browser && npx playwright install chromium && npm test
 ```
 
-These browser tests serve the repository HTML/JS with local mock API responses. They verify network navigation, address-book text safety, read-only access before setup, RPC failure states, both guided exchange directions, pool selection, response-loss recovery, diagnostics and mobile layout. They never access the runtime wallet or public RPC. GitHub Actions in `.github/workflows/verify.yml` runs isolated Go race/vet/coverage checks plus browser tests and Go CLI tests; consult [GitHub Actions](https://github.com/a861252012/flowledger/actions) for actual remote run results.
+These browser tests serve the repository HTML/JS with local mock API responses. They verify network navigation, address-book text safety, read-only access before setup, RPC failure states, both guided exchange directions, pool selection, response-loss recovery, diagnostics and mobile layout. They never access the runtime wallet or public RPC. GitHub Actions in `.github/workflows/verify.yml` runs isolated Go race/vet/coverage checks plus browser tests and Go CLI tests; consult [GitHub Actions](https://github.com/a861252012/testnet-wallet-lab/actions) for actual remote run results.
 
 Read-only new-network acceptance:
 
@@ -259,7 +255,6 @@ FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$' -v -c
 ```
 
 `FLOWLEDGER_SOLANA_LIVE_SEND=1 go test -run '^TestSolanaDevnetSendAcceptance$' -v -count=1 ./internal/wallet` is an explicit **Devnet write opt-in**: it creates a disposable test wallet, requests faucet SOL and self-transfers. A faucet refusal is reported as SKIP, never outgoing acceptance. Do not include that opt-in in routine CI.
-
 
 ## Polygon Amoy and TRON Shasta
 
@@ -273,8 +268,10 @@ FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$' -v -c
 
 Official sources: [Polygon Amoy configuration](https://docs.polygon.technology/pos/reference/rpc-endpoints), [TRON networks](https://developers.tron.network/docs/networks), [resource model](https://developers.tron.network/docs/resource-model), [TRON protobuf schema](https://github.com/tronprotocol/protocol/blob/master/core/Tron.proto).
 
-Read-only acceptance: `FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$/80002$' -v -count=1 ./internal/chain` and `FLOWLEDGER_LIVE_TRON=1 go test -run '^TestTronShastaReadOnly$' -v -count=1 ./internal/wallet`. These do not sign or broadcast. See [Polygon/TRON verification](polygon-tron-2026-09-15.md) for the initial read-only results, and [live acceptance](onchain-acceptance-2026-09-15.md) for subsequent outgoing Shasta transactions and the remaining Amoy funding gate.
+Read-only acceptance: `FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$/80002$' -v -count=1 ./internal/chain` and `FLOWLEDGER_LIVE_TRON=1 go test -run '^TestTronShastaReadOnly$' -v -count=1 ./internal/wallet`. These do not sign or broadcast. See [Polygon/TRON verification](polygon-tron-2026-09-15.md) for the initial read-only results, and [live acceptance](onchain-acceptance-2026-09-15.md) for outgoing Shasta transactions recorded that day. The [September 16 follow-up](onchain-acceptance-2026-09-16.md) records the later Amoy native transfer; neither report is a new verification run.
 
 ## Interface preferences
 
-The wallet uses a task-based workspace inspired by the local Fracted dashboard: an overview, send, receive, exchange, test funding, activity, and settings. Advanced diagnostics and setup details are available on demand. English, Simplified Chinese, and Traditional Chinese (Taiwan) can be switched without reloading or clearing form inputs. Light/dark appearance and language preferences persist in this browser across wallet pages. See [UI acceptance notes](ui-refresh-2026-09-15.md) for implementation boundaries and verification.
+The wallet uses a task-based workspace: an overview, send, receive, exchange, test funding, activity, and settings. Advanced diagnostics and setup details are available on demand. English, Simplified Chinese, and Traditional Chinese (Taiwan) can be switched without reloading or clearing form inputs. Light/dark appearance and language preferences persist in this browser across wallet pages.
+
+UI translations are maintained in `internal/web/static/messages.js`, with Traditional Chinese as the source text and `i18n.js` handling display conversion. Add new UI messages to the table; keep user-defined names under `translate="no"`, and leave API values, amounts, addresses, signing data and unknown external errors unchanged. Set `FLOWLEDGER_UI_SCREENSHOTS` to an output directory when running the browser tests to save the optional English desktop/mobile, light/dark mock screenshots. These screenshots are UI fixtures, not chain acceptance evidence.

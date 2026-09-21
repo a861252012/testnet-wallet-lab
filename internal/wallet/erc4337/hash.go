@@ -19,7 +19,6 @@ const (
 )
 
 // PackUserOp 對 UserOperation 進行標準 v0.6 內部 ABI 打包 (320 位元組)
-// 符合 PROJECT.md 介面契約規範
 func PackUserOp(userOp *UserOperation) ([]byte, error) {
 	if userOp == nil {
 		return nil, ErrNilUserOp

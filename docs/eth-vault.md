@@ -52,6 +52,7 @@ npm run test:e2e --prefix tests/browser
 
 一般 `go test` 在缺 Node／Playwright 或 short mode 時，可能跳過瀏覽器案例；因此發布驗收必須另有 `npm run test:e2e` 成功紀錄。該入口固定使用 `go test -race -count=1` 並設定 `RUN_BROWSER_E2E=1`，缺少依賴或 short mode 會失敗；race detector 需啟用 CGO，非 Darwin 系統還需 C compiler。CI 的 Go job 保留離線容器測試，browser job 透過此入口執行帶 race detector 的瀏覽器 E2E。瀏覽器子程序的 `E2E_BASE_URL`、`E2E_VAULT`、`E2E_BACKEND=simulated` 由 Go harness 提供；不接受不成對設定或非 loopback 伺服器。公共展示站使用 `test:live` 檢查。
 
+本機 simulated EVM 使用 Sepolia 的 chain ID；相同 chain ID、合約地址格式或交易 hash 都不構成公共 Sepolia 證據。以上本機測試也不代表新版 Demo 已發布。部署版本與 UI 的驗證方式見[部署說明](deployment.md)。
 
 ## 啟用方式（需要另行部署）
 

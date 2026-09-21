@@ -2,6 +2,17 @@
 
 這個指令只驗證 Ethereum Sepolia、EntryPoint v0.6 與 SimpleAccount：第一次發送時部署帳戶，再轉 1 wei 給 owner。它沿用套件的 Builder、Signer 和 Bundler client，沒有接入錢包 UI。
 
+## 套件範圍與本機測試
+
+`internal/wallet/erc4337` 提供 v0.6／v0.7 UserOperation 的編碼、hash、Builder、Signer 與 Bundler JSON-RPC client。它與 EOA 發送流程及交易日誌分開；Paymaster、session key 與帳戶恢復尚未整合。格式支援不等於兩個版本都完成公鏈驗收，以下實際收據僅涵蓋 v0.6。
+
+套件測試使用 `httptest` Mock Bundler，涵蓋編碼、簽章還原、RPC 錯誤、回應邊界與並行呼叫；不會向公鏈送出交易：
+
+```sh
+go test -race -count=1 ./internal/wallet/erc4337
+go vet ./internal/wallet/erc4337
+```
+
 ## 2026-09-16 驗收通過
 
 - EntryPoint：`0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789`

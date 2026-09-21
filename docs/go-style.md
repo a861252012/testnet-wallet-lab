@@ -24,6 +24,11 @@
 - 舊 EVM journal 允許缺少 `To`／`Action`，舊 opaque quote ID 不強迫改成新報價格式。交易 raw bytes、hash、落盤後廣播、CAS 版本與鎖順序保持原用途。
 - 跨鏈 journal 的業務型別沒有 JSON tag；disk DTO 不嵌入公開回應型別。TRON 比較業務紀錄是否改變直接使用 `slices.Equal`，不透過 JSON round trip。
 
+## Git 內容範圍
+
+
+提交前逐檔檢查 `git diff --cached`，只加入這次需要的檔案。CI 會拒絕已追蹤但符合 `.gitignore` 的檔案；這項檢查只能擋已列出的路徑，仍需人工檢查內容。合約 artifacts、測試 fixtures、package-lock 與公開交易收據都有用途，不因名稱像產物或金鑰資料就刪除。
+
 ## 驗證與限制
 
 Commit 標題使用 `(類型) 具體改動`，例如 `(fix) 修正交易失敗後無法重新預估`。新增功能用 `(feat)`、等價重構用 `(refactor)`、文件用 `(docs)`、純測試用 `(test)`。同一項改動與必要測試放在同一個 commit；推送前合併零碎的修補 commit。已推送的共用歷史不為了改標題重寫。

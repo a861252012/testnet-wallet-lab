@@ -18,7 +18,7 @@ Solidity 存款／提款合約配合 Sepolia 簡易面板，包含每個地址�
 
 ## 本機啟動與驗證
 
-[本機啟動](docs/wallet-reference.md#run-with-docker) · [架構](docs/architecture.md) · [示範流程](docs/demo-script.md) · [Go 風格與檢查](docs/go-style.md)
+[本機啟動](docs/wallet-reference.md#run-with-docker) · [架構](docs/architecture.md) · [交易復原驗證](docs/demo-script.md) · [Go 風格與檢查](docs/go-style.md)
 
 ## 主要功能
 

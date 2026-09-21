@@ -18,7 +18,7 @@ Solidity 存款／提款合约搭配 Sepolia 简易面板，包含每个地址�
 
 ## 本地启动与验证
 
-[本地启动](docs/wallet-reference.md#run-with-docker) · [架构](docs/architecture.md) · [演示流程](docs/demo-script.md) · [Go 风格与检查](docs/go-style.md)
+[本地启动](docs/wallet-reference.md#run-with-docker) · [架构](docs/architecture.md) · [交易恢复验证](docs/demo-script.md) · [Go 风格与检查](docs/go-style.md)
 
 ## 主要功能
 

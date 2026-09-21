@@ -56,13 +56,9 @@ ok   github.com/a861252012/flowledger/internal/web 1.071s
 
 Go 容器使用唯讀原始碼、無網路及獨立測試 cache，未掛載執行中錢包資料。Race Detector 僅針對執行到的記憶體存取，不證明不存在邏輯競態。
 
-瀏覽器驗證使用本機 bundled Playwright：
+當時瀏覽器驗證使用本機 bundled Playwright 執行 `tests/browser/browser.cjs`。目前可依 [瀏覽器測試說明](wallet-reference.md#browser-and-continuous-verification) 安裝專案依賴並重跑。
 
-```sh
-NODE_PATH=/Users/a861252012/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node tests/browser/browser.cjs
-```
-
-Exit 0；涵蓋五個 EVM 網路、雙向兌換引導、回應遺失復原、Solana/TRON UI、TRC-20 查詢及手機版。全部 API 為本機 Mock，未簽署真實交易。首次受 macOS sandbox 阻擋，允許啟動測試瀏覽器後通過。上述 NODE_PATH 為本次機器環境；其他環境依 tests/browser 的套件安裝方式執行。
+Exit 0；涵蓋五個 EVM 網路、雙向兌換引導、回應遺失復原、Solana/TRON UI、TRC-20 查詢及手機版。全部 API 為本機 Mock，未簽署真實交易。
 
 Python 單元測試：12 tests，Exit 0。
 
@@ -72,7 +68,7 @@ Python 單元測試：12 tests，Exit 0。
 
 ## 帳戶與入金
 
-原有 EVM 錢包保留，未嘗試解密或花用原有 ETH。另建立專用測試帳戶，EVM 地址為 `0x57b44407cb4445f743e694da808B60654926C6ea`。新增測試帳戶的本機憑證及加密備份保存在被 Git 忽略的 `data/acceptance/`（目錄 0700、檔案 0600）；不得提交、複製到報告或當作正式金鑰管理方案。
+驗收使用專用測試帳戶，EVM 地址為 `0x57b44407cb4445f743e694da808B60654926C6ea`。Repository 不含驗收帳戶的憑證或加密備份。
 
 Google 水龍頭取得 0.05 Sepolia ETH；TRON 官方連結水龍頭取得測試 TRX／USDT。Base、OP、Arbitrum 分別以 0.001 Sepolia ETH 經測試網橋入金；這是驗收準備，不宣稱產品已提供跨鏈橋 UI。Arbitrum 入金使用額外一次性測試工具，其後 Arbitrum 原生轉帳使用產品 API。
 
@@ -80,11 +76,11 @@ Google 水龍頭取得 0.05 Sepolia ETH；TRON 官方連結水龍頭取得測試
 
 以下是當日狀態。Polygon Amoy 與 Solana Devnet 的原生幣發送已於 [2026-09-16 補齊](onchain-acceptance-2026-09-16.md)。
 
-- Polygon Amoy：地址已建立、發送實作及 Mock 已驗證，但尚未取得 POL 並完成實際廣播。官方水龍頭要求同意條款及第三方身分驗證，等待使用者授權。
-- Solana Devnet：地址已建立；公開 RPC 水龍頭回覆限流。替代水龍頭要求 GitHub 身分授權，尚未完成入金與實際廣播。
+- Polygon Amoy：地址已建立、發送實作及 Mock 已驗證，但當時尚未取得 POL 並完成實際廣播。
+- Solana Devnet：地址已建立；公開 RPC 水龍頭回覆限流。當時尚未完成入金與實際廣播。
 - 其他 EVM 網路的 DEX、Solana SPL／DEX、TRON DEX 未實作。
 - 所有功能並非都已實鏈故障演練；交易加速／取消等仍以既有測試涵蓋為主。
-- 這份驗收不含 mainnet、真實資金、獨立安全稽核或已執行的 GitHub CI。尚未 commit / push 本次工作樹。
+- 這份驗收不含 mainnet、真實資金、獨立安全稽核或已執行的 GitHub CI。
 
 2026-09-16 工具遷移：上述 Python 測試數量是當時的歷史紀錄。
 現行驗收 CLI 與測試已移至 `cmd/send-and-verify`、`cmd/verify-onchain-evidence`，

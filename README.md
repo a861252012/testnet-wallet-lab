@@ -18,7 +18,7 @@ A minimal Solidity deposit/withdraw contract with a Sepolia-only panel, per-addr
 
 ## Run and verify
 
-[Local setup](docs/wallet-reference.md#run-with-docker) · [Architecture](docs/architecture.md) · [Demo walkthrough](docs/demo-script.md) · [Go style and checks](docs/go-style.md)
+[Local setup](docs/wallet-reference.md#run-with-docker) · [Architecture](docs/architecture.md) · [Recovery checks](docs/demo-script.md) · [Go style and checks](docs/go-style.md)
 
 ## Features
 

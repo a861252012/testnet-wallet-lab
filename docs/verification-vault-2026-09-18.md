@@ -1,12 +1,12 @@
 # ETHVault 本機驗證紀錄 — 2026-09-18
 
-本文件保留 9 月 18 日的歷史結果。Gemini review 後的 CI／斷言補強與新來源指紋，見 [2026-09-19 複核及驗證](verification-vault-2026-09-19.md)；下方 569 個 pass 與封存不能當成後續修改已重跑全套的證據。
+本文件保留 9 月 18 日的歷史結果。後續 CI／斷言補強與新來源指紋，見 [2026-09-19 複核及驗證](verification-vault-2026-09-19.md)；下方 569 個 pass 不能當成後續修改已重跑全套的證據。
 
-本輪實際執行時間為 2026-09-18 **21:23–21:30（Asia/Taipei）**，即 **13:23–13:30 UTC**。範圍為待發布 working tree 的本機驗證，尚未 commit、push 或發布這份修改；公共 Sepolia ETHVault 部署與存提仍待驗收。
+本輪實際執行時間為 2026-09-18 **21:23–21:30（Asia/Taipei）**，即 **13:23–13:30 UTC**。範圍為當時工作樹的本機驗證；當時尚未驗收這份修改的公開部署與公共 Sepolia 存提。
 
-## 可追溯的版本與原始結果
+## 版本與結果摘要
 
-基底 commit：`66ae38bb4721d15b1993cf6343670883061c305b`。本輪保留接手時的 19 個 staged 檔案，改善內容另留在 working tree；HEAD 本身不包含這些尚未提交的內容。
+基底 commit：`66ae38bb4721d15b1993cf6343670883061c305b`。驗證包含當時未提交的修改，來源以下方指紋識別，不能只用基底 commit 代表受測版本。
 
 | 階段 | 程式／建置／測試檔案 SHA-256 | 結果 |
 |---|---|---|
@@ -17,13 +17,7 @@
 
 指紋涵蓋 176 個 tracked／non-ignored 程式、設定、建置與測試檔案：取 `git ls-files --cached --others --exclude-standard`，排除 `docs/`、`README*`、`test-results/` 及 `.md`；逐檔 SHA-256 後，以檔名排序的 JSON（`sort_keys=True`、`separators=(',', ':')`）計算整體 SHA-256。這個值不是 Git tree／commit SHA；文件與證據另以 diff 審閱。
 
-[完整執行索引與命令](evidence/vault-local-2026-09-18/verification.json)保留三個階段的時間、exit code、skip 情況、工具版本、image ID 與原始檔案雜湊。[原始結果封存](evidence/vault-local-2026-09-18/raw-results.zip)共 26 個檔案，包含未修改的 log、各次結果 JSON 與來源 manifest；初次失敗紀錄也保留在內。封存 SHA-256：
-
-```text
-09f9dad2d4939b50047141ad2b13da72034eece43356a3f25eab5a1e278d8b28
-```
-
-原始本機目錄為 `test-results/release-review-2026-09-18/`，受 `.gitignore` 排除；上面的 `docs/evidence/` 封存則可隨本次文件一起提交，讓其他 agent 不依賴同一個暫存目錄。
+這份文件保留當時的結果摘要與來源指紋；原始本機 log、執行索引與封存檔不隨 repository 保存。重新驗證可使用下方指令與專案 CI，但新結果只適用於重跑時的版本，不能替代當時的執行結果。
 
 ## 實測環境
 
@@ -35,7 +29,7 @@
 | Solidity | `0.8.37+commit.f401782d.Emscripten.clang`，optimizer 200 runs，EVM Cancun |
 | Docker | `29.4.0`，Linux ARM64 engine |
 
-npm 的全域 `allow-scripts` 設定產生非致命警告，原始 log 保留此訊息。兩個 npm 專案均以 lockfile 執行 `npm ci --ignore-scripts`；合約驗收先執行 `check`，沒有先覆寫 artifact。
+npm 的全域 `allow-scripts` 設定在當時產生非致命警告。兩個 npm 專案均以 lockfile 執行 `npm ci --ignore-scripts`；合約驗收先執行 `check`，沒有先覆寫 artifact。
 
 ## 已完成的驗證
 
@@ -60,11 +54,11 @@ HTTP 整合案例 `TestE2EVaultFullLifecycle` 使用 **0.5 / 0.2 / 0.3 ETH**，�
 
 ## 初次失敗與修正
 
-部署／輪詢替身直接把本機 PATH 拼進 shell，遇到 `Chat On Steroids.app` 的空白後，shell 把後半段誤當 export 參數，導致 6 failures、5 errors。兩份 fixture 改用 `shlex.quote` 處理 base、PATH 與替身程式路徑；暫存目錄名稱刻意含空白，以持續覆蓋此情境。修正後同一組 13 項測試全部通過，正式部署腳本未修改。
+部署／輪詢替身直接把本機 PATH 拼進 shell，遇到含空白的應用程式路徑後，shell 把後半段誤當 export 參數，導致 6 failures、5 errors。兩份 fixture 改用 `shlex.quote` 處理 base、PATH 與替身程式路徑；暫存目錄名稱刻意含空白，以持續覆蓋此情境。修正後同一組 13 項測試全部通過，正式部署腳本未修改。
 
-原始失敗為封存根目錄的 `deployment-unit.log`，修正後結果為 `followup/deployment-unit.log`；不要只引用初次整體 recorder 的 Exit 1，也不要刪去它而宣稱從未失敗。
+初次執行失敗，修正後才通過；兩次結果應分開解讀。
 
-## 跳過、未執行與接續事項
+## 當時跳過與未執行的項目
 
 以下五項依既有 opt-in 規則跳過，不算公共鏈驗收成功：
 
@@ -78,5 +72,4 @@ internal/wallet TestTronShastaReadOnly
 
 本輪尚未執行這份修改的遠端 GitHub Actions、Node 22 瀏覽器流程、Linux AMD64 smoke、`govulncheck`、新版公開站 `test:live`、公共 Sepolia ETHVault 部署／原始碼驗證／存入／取回。這些結果不得由本機通過推論。`EXPECTED_VAULT_ADDRESS` 已新增且完成靜態複核，但指定真實地址的 live 驗收仍須等合約啟用後執行。
 
-獨立 reviewer 做了唯讀程式審查，指出成功紀錄可能互相替代、金額 substring 假陽性等問題，已納入本輪修改並執行上述測試；reviewer 的靜態判斷沒有當成額外測試通過次數。
-
+程式審查發現成功紀錄可能互相替代、金額 substring 比對可能誤判等問題；修正後執行上述測試。靜態審查不計為測試通過次數。

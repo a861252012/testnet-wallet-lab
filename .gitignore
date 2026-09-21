@@ -25,3 +25,16 @@ __pycache__/
 node_modules/
 test-results/
 .agents/
+
+# Local planning, handoffs, and raw verification output
+/ORIGINAL_REQUEST.md
+/OPTIMIZATION_PLAN.md
+/PROJECT.md
+/TEST_INFRA.md
+/docs/*-evaluation-report.md
+/docs/*-handoff-*.md
+/docs/ui-refresh-*.md
+/docs/ui-ux-polish-*.md
+/docs/evidence/vault-local-*/
+/docs/evidence/vault-review-*/
+/docs/evidence/*/raw-results.zip

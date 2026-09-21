@@ -29,7 +29,7 @@ Shasta 發放帳戶先由既有測試錢包轉入 20 TRX，資金補充交易為
 - 只向本機錢包發放。EVM 原生幣及 Sepolia USDC、TRON 5 TRX 皆會查找近一小時同額交易，找到時回傳原雜湊並標示 reused，不再廣播。檢查包含供應帳戶的手動同額轉帳，及未知廣播結果。
 - 近一小時每網路最多 20 筆供應帳戶交易；計入其其他操作。這是本機演示限額，不是公開商用 faucet 的配額系統。
 - EVM 預估手續費（含 Base/OP 預留費）最多 0.0001 ETH；Amoy 最多 0.1 POL；TRON 原生幣發放最多預估 2 TRX。OP 額外費用仍是估算，不能宣稱協議層硬上限。
-- POST 套用既有 localhost Host、Origin、CSRF 與嚴格 JSON 檢查。設定檔要求普通檔案與 0600 權限，預設未啟用發放；本機已在 ignored 設定檔啟用。
+- POST 套用既有 localhost Host、Origin、CSRF 與嚴格 JSON 檢查。設定檔要求普通檔案與 0600 權限，預設未啟用發放。
 - Solana 每分鐘最多嘗試一次，重啟會重設此本機冷卻；上游額度獨立存在。逾時不代表沒有發出空投，因此介面要求先核對餘額。
 
 ## 尚未完成或受外部供應限制
@@ -38,7 +38,6 @@ Shasta 發放帳戶先由既有測試錢包轉入 20 TRX，資金補充交易為
 - Solana 本次實際按鈕請求未取得可確認的成功空投結果，餘額仍為 0。UI 顯示未確認、可能限流／供應不足／連線逾時，而非已到帳。
 - Sepolia USDC 固定發放 0.01，使用既有 ERC-20 簽名路徑；下方五筆新交易驗收僅涵蓋原生幣發放。
 - 不會自動操作第三方登入、接受條款或繞過 CAPTCHA 補庫存。公開 clone 不含測試幣、密碼或私鑰。
-- 本輪未 commit 或 push。
 
 ## 驗證方法
 
@@ -55,13 +54,7 @@ docker run --rm --network none \
 
 新增測試驗證非允許網路／外部收款人／自訂金額被拒絕、過高手續費不廣播、簽署金額與鏈 ID 綁定、廣播回應遺失後重啟不重送，以及 Solana genesis 檢查與固定空投額度、TRON 原生幣發放與未知廣播去重。
 
-瀏覽器回歸使用本機 mock API，禁止外部連線，涵蓋領幣成功、SOL 失敗訊息、TRON 庫存不足和既有流程；不把 mock 測試算成真實收據。實際執行環境的 Node 套件路徑：
-
-```sh
-NODE_PATH=/Users/a861252012/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules node tests/browser/browser.cjs
-```
-
-瀏覽器測試在 macOS 須允許 Chromium 的 Mach port 啟動；這是本機測試程序，並非登入現有使用者瀏覽器。
+瀏覽器回歸使用本機 mock API，禁止外部連線，涵蓋領幣成功、SOL 失敗訊息、TRON 庫存不足和既有流程；不把 mock 測試算成真實收據。當時使用 bundled Playwright 執行 `tests/browser/browser.cjs`；目前的安裝與重跑方式見[瀏覽器測試說明](wallet-reference.md#browser-and-continuous-verification)。
 
 最終 Go 測試與靜態分析 Exit Code 0：
 

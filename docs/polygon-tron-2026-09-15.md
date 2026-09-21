@@ -2,7 +2,7 @@
 
 > Historical implementation snapshot. Subsequent TRX and TRC-20 sends, expiry recovery, and current limits are recorded in [live acceptance](onchain-acceptance-2026-09-15.md). Statements below about an uncreated TRON wallet and no outgoing Shasta transaction applied before that run.
 
-Date: 2026-09-15 (Asia/Taipei). Review the current working tree, not only HEAD `a1631c58c8e5c0a1518cd3920f1e489de02ab8ce`. This batch is not committed or pushed. Earlier uncommitted multi-network work remains present.
+Date: 2026-09-15 (Asia/Taipei). Verification covered an uncommitted working tree based on `a1631c58c8e5c0a1518cd3920f1e489de02ab8ce`; the baseline commit alone does not identify all tested changes.
 
 ## Delivered
 
@@ -44,12 +44,7 @@ ok  github.com/a861252012/flowledger/internal/web    1.073s
 
 Tests cover an official Shasta unsigned transaction/raw-hash vector, TRON address checksum and derivation, persisted signatures, restart, same-quote deduplication, exact-byte retry, wrong network/password, expired quotes/raw transactions, disk failure before broadcast, backup restoration, TRC-20 simulation/receipt false-return handling, POL journal/quote currency, Amoy signed chain ID/value, and foreign Host/Origin/missing-CSRF rejection. Race Detector results apply to executed paths; they are not proof of absence of logical races.
 
-Browser command (temporary Chromium; all off-origin requests aborted):
-
-```sh
-NODE_PATH=/Users/a861252012/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules \
-  node tests/browser/browser.cjs
-```
+The browser run used bundled Playwright to execute `tests/browser/browser.cjs` with temporary Chromium; all off-origin requests were aborted. For current setup and reruns, see [browser verification](wallet-reference.md#browser-and-continuous-verification).
 
 Exit 0:
 
@@ -57,7 +52,7 @@ Exit 0:
 PASS: five EVM networks including POL, contacts, observation, RPC failures, pool selection, both exchange workflows, lost-response reload recovery, history search, diagnostics, Solana and TRON create/quote/send/finalized UI, TRC20 query, mobile layout (mock APIs only).
 ```
 
-The bundled Playwright is 1.62.1; CI pins 1.58.2, so that exact CI browser build was not run here. Chromium required a sandbox escalation for macOS Mach-port access; the approved run used the fixture server and disposable profile. `node --check` passed for changed scripts; `git diff --check` passed. A subsequent visual check found and fixed an empty TRON error box with the existing CSS `:empty` convention.
+The bundled Playwright is 1.62.1; CI pins 1.58.2, so that exact CI browser build was not run here. The run used the fixture server and disposable profile. `node --check` passed for changed scripts; `git diff --check` passed. A subsequent visual check found and fixed an empty TRON error box with the existing CSS `:empty` convention.
 
 ## Real network reads (no signing or broadcast)
 
@@ -81,14 +76,14 @@ The Amoy latest and finalized observations are separate requests; a new block ar
 
 Shasta `/wallet/createtransaction` also produced a public unsigned transfer fixture (1 SUN). The test verifies raw protobuf bytes and SHA-256 ID `3a894f8f31a6db67d75cca83ee0aa1a31aba1044d0a786042797879d685a0963`. This is an **unsigned fixture ID, not an on-chain transfer receipt**.
 
-## Runtime and limits for reviewers
+## Runtime and limits at the time
 
-- `docker compose up -d --no-deps app` activated the new routes and environment. No volume deletion, key replacement, database cleanup, commit or push was performed.
-- Actual browser navigation confirmed Polygon Amoy/POL and TRON Shasta setup pages. Existing EVM account remained available. TRON runtime account has not been created; setup is left for the wallet holder.
+- The app was restarted to activate the new routes and environment.
+- Actual browser navigation confirmed Polygon Amoy/POL and TRON Shasta setup pages. Existing EVM account remained available. The TRON runtime account had not been created at that point.
 - No real outgoing Amoy or Shasta transaction was completed. TRC-20 behavior was tested with mocks, not a deployed Shasta contract. Faucet funding and local wallet-holder signing are still required for transaction-hash/receipt evidence. Do not describe this as completed end-to-end chain acceptance.
 - TRON history is local outgoing history, not a complete incoming-payment indexer. One in-flight transaction, 1,000 record limit; unknown expired broadcasts can remain blocked pending investigation. No automatic journal deletion.
 - TRON quote resource reserves are estimates. Fee prices/resources can change; `fee_limit` only limits Energy. Provider availability and solidification are reported by a single configured RPC, without independent quorum.
 - No TRON DEX/staking/multisig/fee delegation or Amoy swap is implemented. Existing Exchange is Ethereum Sepolia only. Solana still supports native SOL only.
-- The broader portfolio's real outgoing Ethereum/Solana acceptance and three-minute demo recording remain outstanding; this network addition does not close those earlier gaps.
+- Outgoing Ethereum/Solana acceptance and a demo recording were not part of this run. Later transaction results are recorded in the [September 15 acceptance](onchain-acceptance-2026-09-15.md) and [September 16 follow-up](onchain-acceptance-2026-09-16.md).
 
-For an independent review, run `go test -race -count=1 ./...` and `go vet ./...` in a disposable `--network none` container with `/app:ro`, a separate `GOCACHE`, and **no runtime wallet volume**. Do not use `docker compose down -v`.
+To rerun the tests, use `go test -race -count=1 ./...` and `go vet ./...` in a disposable `--network none` container with `/app:ro`, a separate `GOCACHE`, and **no runtime wallet volume**. Do not use `docker compose down -v`.

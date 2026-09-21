@@ -36,7 +36,7 @@ docker run --rm --network none \
 
 - 單獨執行 `TestProcessKillRestartReusesRaw` 並開啟 Race Detector：PASS。
 - 無外部網路、唯讀原始碼、未掛載執行中錢包的容器內，`go test -race -count=1 ./...`：chain、wallet、wallet/erc4337、web 全部通過；cmd/flowledger 沒有測試檔。
-- 既有 Playwright Mock 套件：PASS，包含三種語系、兩種主題、375／768／1024／1440 px 版面，以及 EVM／Solana／TRON 操作流程。首次 Chromium 啟動受到 macOS sandbox 限制，允許測試程序啟動後重跑通過。
+- 既有 Playwright Mock 套件：PASS，包含三種語系、兩種主題、375／768／1024／1440 px 版面，以及 EVM／Solana／TRON 操作流程。
 - 同一隔離容器內的 `go vet ./...` 通過。
 - `git diff --check` 通過；新測試檔符合 gofmt。
 

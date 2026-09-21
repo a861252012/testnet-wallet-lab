@@ -1,6 +1,6 @@
 # FlowLedger verification — 2026-09-15
 
-Baseline: `a1631c58c8e5c0a1518cd3920f1e489de02ab8ce`. These changes are local and have not been committed or pushed.
+Historical verification of a working tree based on `a1631c58c8e5c0a1518cd3920f1e489de02ab8ce`. The baseline commit alone does not identify the tested changes.
 
 ## Implemented
 
@@ -75,6 +75,7 @@ PASS (7.299s). All four fee tiers returned nonzero quotes for 0.000001 WETH: 100
 
 ## Final expansion verification
 
+The later working-tree expansion adds Base/OP Sepolia, guided Exchange, observation/diagnostics, QR/address book, showcase, CI definition, and independent native SOL on Devnet. See [architecture](architecture.md) for implementation boundaries and [on-chain acceptance](onchain-acceptance-2026-09-15.md) for the subsequent transaction results.
 
 Final Go command (source/modules read-only, no runtime wallet, network disabled):
 
@@ -105,6 +106,7 @@ The response-loss fixture returns HTTP 502 after recording a broadcast, then rel
 
 All frontend JavaScript passed `node --check`; four Python tests passed with `python3 -m unittest discover -s scripts -p 'test_*.py'`; `git diff --check` passed. CI is defined but no remote execution, coverage percentage, or absence of all logical races is claimed.
 
+Live Base/OP read-only checks passed. The isolated Solana Devnet outgoing test **SKIPPED** because the faucet did not provide funds. No outgoing Solana signature was obtained during this run. At that point, Ethereum outgoing ETH/ERC-20/approval/swap acceptance and an on-chain demonstration video remained incomplete. Subsequent transaction results are recorded in the [September 15 acceptance](onchain-acceptance-2026-09-15.md) and [September 16 follow-up](onchain-acceptance-2026-09-16.md).
 
 Migration note (2026-09-16): the Python test result above is a historical
 observation. Those scripts have been replaced by `cmd/send-and-verify` and
