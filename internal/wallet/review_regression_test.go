@@ -78,9 +78,16 @@ func TestSolanaHistoryBatchesRotateAfterRPCFailure(t *testing.T) {
 		}
 		s.records = append(s.records, solanaJournalRecord{Signature: solanaSignature(signature.String()), State: state, LastValid: lastValid})
 	}
-	for range 4 {
+	for attempt := range 4 {
 		history, err := s.History(context.Background())
-		if err != nil || len(history) != 20 {
+		if attempt == 0 {
+			if !errors.Is(err, errSolRPC) {
+				t.Fatalf("failed refresh must report the sanitized RPC error: %v", err)
+			}
+		} else if err != nil {
+			t.Fatalf("history did not recover: %v", err)
+		}
+		if len(history) != 20 {
 			t.Fatalf("history: %d, %v", len(history), err)
 		}
 	}

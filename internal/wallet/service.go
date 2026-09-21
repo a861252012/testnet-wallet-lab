@@ -23,22 +23,30 @@ import (
 
 // Service manages keys, quotes, transactions, and the journal.
 type Service struct {
-	historyOffset int
-	scanMu        sync.Mutex
-	catalog       *Service
-	client        *chain.Client
-	keystore      *KeystoreManager
-	quotes        *QuoteStore
-	journal       *JournalManager
-	csrfToken     string
-	sendMu        sync.Mutex
-	historyMu     sync.Mutex
-	walletDir     string
-	vaultAddress  string
-	escrowAddress string
-	escrowToken   string
-	lockFile      *os.File
-	storageFault  atomic.Bool
+	historyOffset              int
+	scanMu                     sync.Mutex
+	catalog                    *Service
+	client                     *chain.Client
+	keystore                   *KeystoreManager
+	quotes                     *QuoteStore
+	journal                    *JournalManager
+	csrfToken                  string
+	sendMu                     sync.Mutex
+	historyMu                  sync.Mutex
+	walletDir                  string
+	vaultAddress               string
+	escrowAddress              string
+	escrowToken                string
+	lockFile                   *os.File
+	storageFault               atomic.Bool
+	lastActivityArchiveNano    int64
+	writeActivityArchive       func(string, []byte, os.FileMode) error
+	scanBackoffUntil           time.Time
+	scanBackoffDuration        time.Duration
+	scanGeneration             uint64
+	maintenanceTickInterval    time.Duration
+	maintenanceHistoryInterval time.Duration
+	scanBackoffInitial         time.Duration
 }
 
 func NewService(client *chain.Client, walletDir string, scryptParams ...int) (*Service, error) {

@@ -419,6 +419,13 @@ func (jm *JournalManager) UpdateStateAtomicIfVersion(hash string, expectedVersio
 		}
 	}
 	if target == nil {
+		// Archival can finish while an RPC observation is in flight. The archived
+		// record is already terminal, so discard that observation as stale.
+		for _, record := range jm.archived {
+			if string(record.Hash) == hash {
+				return false, nil
+			}
+		}
 		return false, errors.New("找不到欲更新的交易紀錄")
 	}
 

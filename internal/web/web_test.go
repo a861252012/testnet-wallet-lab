@@ -2,9 +2,14 @@ package web
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -279,6 +284,106 @@ func TestActivityRoutesStayLocalAndExportExactCSV(t *testing.T) {
 	handler.ServeHTTP(response, req)
 	if response.Code != 400 {
 		t.Fatal("foreign host accessed export")
+	}
+}
+
+// TestActivityCSVExportPhaseBInterruptedCompaction 驗證階段 b 封存成功但活躍檔更新中斷時，跨頁匯出 CSV 正確有序去重、穩定不跳頁且無重複交易行。
+func TestActivityCSVExportPhaseBInterruptedCompaction(t *testing.T) {
+	c, err := chain.New("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	walletDir := t.TempDir()
+	ws, err := wallet.NewService(c, walletDir, 2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ws.Close()
+	if _, err := ws.Import("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", "fixture-password-123"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 產生 30 筆合法雜湊
+	total := 30
+	ids := make([]string, total)
+	for i := range ids {
+		ids[i] = fmt.Sprintf("0x%064x", i+1)
+	}
+
+	// 模擬階段 b：封存檔已寫入前 25 筆，活躍檔未縮減仍有全部 30 筆
+	archiveData, _ := json.Marshal(ids[:25])
+	archivePath := filepath.Join(walletDir, "activity-archive-00000000000000000001.json")
+	if err := os.WriteFile(archivePath, archiveData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	activeData, _ := json.Marshal(ids)
+	activePath := filepath.Join(walletDir, "activity.json")
+	if err := os.WriteFile(activePath, activeData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, err := New(c, ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 請求第 1 頁 CSV（20 筆）與第 2 頁 CSV（10 筆）
+	seenHashes := map[string]int{}
+	pageRowCounts := map[int]int{}
+
+	for page := 1; page <= 2; page += 1 {
+		req := httptest.NewRequest("GET", fmt.Sprintf("http://localhost:8090/api/wallet/activity?format=csv&page=%d", page), nil)
+		resp := httptest.NewRecorder()
+		handler.ServeHTTP(resp, req)
+
+		if resp.Code != 200 {
+			t.Fatalf("page %d failed with status %d: %s", page, resp.Code, resp.Body.String())
+		}
+		if !strings.HasPrefix(resp.Header().Get("Content-Type"), "text/csv") {
+			t.Fatalf("page %d invalid Content-Type: %s", page, resp.Header().Get("Content-Type"))
+		}
+
+		reader := csv.NewReader(resp.Body)
+		rows, err := reader.ReadAll()
+		if err != nil {
+			t.Fatalf("page %d CSV parse failed: %v", page, err)
+		}
+		if len(rows) < 1 {
+			t.Fatalf("page %d CSV has no header", page)
+		}
+		// 檢查標題列
+		header := rows[0]
+		expectedHeader := []string{"chain_id", "hash", "state", "block", "block_time", "kind", "asset", "amount_raw", "counterparty", "evidence"}
+		if !slices.Equal(header, expectedHeader) {
+			t.Fatalf("page %d header mismatch: got %v, want %v", page, header, expectedHeader)
+		}
+
+		// 資料列
+		dataRows := rows[1:]
+		pageRowCounts[page] = len(dataRows)
+		for _, row := range dataRows {
+			hash := row[1]
+			seenHashes[hash] += 1
+		}
+	}
+
+	// 驗證分頁行數
+	if pageRowCounts[1] != 20 {
+		t.Fatalf("page 1 expected 20 rows, got %d", pageRowCounts[1])
+	}
+	if pageRowCounts[2] != 10 {
+		t.Fatalf("page 2 expected 10 rows, got %d", pageRowCounts[2])
+	}
+
+	// 驗證跨頁完全無重複交易行，且總數與 30 筆完全一致
+	if len(seenHashes) != total {
+		t.Fatalf("expected %d unique hashes across CSV pages, got %d", total, len(seenHashes))
+	}
+	for h, count := range seenHashes {
+		if count != 1 {
+			t.Fatalf("hash %s appeared %d times across CSV pages", h, count)
+		}
 	}
 }
 

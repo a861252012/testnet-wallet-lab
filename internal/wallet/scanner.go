@@ -120,6 +120,9 @@ func (s *Service) ScanProgress() (*ScanProgress, error) {
 func (s *Service) ConfigureScan(enabled bool, start *uint64) (*ScanProgress, error) {
 	s.scanMu.Lock()
 	defer s.scanMu.Unlock()
+	s.scanGeneration += 1
+	s.scanBackoffUntil = time.Time{}
+	s.scanBackoffDuration = 0
 	state, err := s.scanProgress()
 	if err != nil {
 		return nil, err
@@ -203,9 +206,48 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 	return err
 }
 
+// checkScanBackoff 檢查目前是否處於掃描錯誤退避期間，並回傳當前配置世代。
+func (s *Service) checkScanBackoff(now time.Time) (uint64, bool) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	return s.scanGeneration, now.Before(s.scanBackoffUntil)
+}
+
+// recordScanError 依指定配置世代記錄掃描執行結果；若世代已變更則忽略舊結果。
+func (s *Service) recordScanError(generation uint64, err error, now time.Time) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	if generation != s.scanGeneration {
+		return
+	}
+	if err == nil {
+		s.scanBackoffDuration = 0
+		s.scanBackoffUntil = time.Time{}
+		return
+	}
+	base := 4 * time.Second
+	if s.scanBackoffInitial > 0 {
+		base = s.scanBackoffInitial
+	}
+	if s.scanBackoffDuration == 0 {
+		s.scanBackoffDuration = base
+	} else {
+		s.scanBackoffDuration = min(s.scanBackoffDuration*2, 60*time.Second)
+	}
+	s.scanBackoffUntil = now.Add(s.scanBackoffDuration)
+}
+
 // RunMaintenance is cancelled and joined by the server before closing the wallet.
 func (s *Service) RunMaintenance(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	tickInterval := 2 * time.Second
+	if s.maintenanceTickInterval > 0 {
+		tickInterval = s.maintenanceTickInterval
+	}
+	historyInterval := 15 * time.Second
+	if s.maintenanceHistoryInterval > 0 {
+		historyInterval = s.maintenanceHistoryInterval
+	}
+	ticker := time.NewTicker(tickInterval)
 	defer ticker.Stop()
 	nextHistory := time.Now()
 	for {
@@ -216,15 +258,24 @@ func (s *Service) RunMaintenance(ctx context.Context) {
 			if !s.keystore.Exists() {
 				continue
 			}
-			if time.Now().After(nextHistory) {
+			now := time.Now()
+			if !now.Before(nextHistory) {
 				check, cancel := context.WithTimeout(ctx, 10*time.Second)
 				_, _ = s.History(check)
 				cancel()
-				nextHistory = time.Now().Add(15 * time.Second)
+				nextHistory = time.Now().Add(historyInterval)
+			}
+			generation, skip := s.checkScanBackoff(time.Now())
+			if skip {
+				continue
 			}
 			check, cancel := context.WithTimeout(ctx, 40*time.Second)
-			_ = s.ScanOnce(check)
+			err := s.ScanOnce(check)
 			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			s.recordScanError(generation, err, time.Now())
 		}
 	}
 }

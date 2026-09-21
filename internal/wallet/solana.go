@@ -386,11 +386,13 @@ func (s *SolanaService) History(ctx context.Context) ([]SolanaRecord, error) {
 		s.historyOffset = (start + visited) % count
 	}
 	changed := false
+	var refreshErr error
 	if len(signatures) > 0 {
 		response, err := s.rpc.GetSignatureStatuses(ctx, true, signatures...)
 		if err != nil || response == nil || len(response.Value) != len(indices) {
 			// SDK errors may contain credentials from the configured RPC URL.
 			log.Print("Solana signature status query failed; retaining previous states")
+			refreshErr = errSolRPC
 		} else {
 			for j, i := range indices {
 				record := &s.records[i]
@@ -401,7 +403,9 @@ func (s *SolanaService) History(ctx context.Context) ([]SolanaRecord, error) {
 					if status.Err != nil {
 						state = "execution_failed"
 					}
-				} else if heightErr == nil && height > record.LastValid {
+				} else if heightErr != nil {
+					refreshErr = errSolRPC
+				} else if height > record.LastValid {
 					state = "expired_unconfirmed"
 				}
 				if record.State != state || record.Finalized != finalized {
@@ -420,7 +424,7 @@ func (s *SolanaService) History(ctx context.Context) ([]SolanaRecord, error) {
 			return nil, err
 		}
 	}
-	return result, nil
+	return result, refreshErr
 }
 func (s *SolanaService) Retry(ctx context.Context, signature string) (*SolanaRecord, error) {
 	parsed, err := sol.SignatureFromBase58(signature)

@@ -16,6 +16,7 @@
   const tokens = new Map();
   const tokenStorageKey = 'flowledger:tokens:' + networkPrefix;
   let historySnapshot = [];
+  let historyRefreshError = '';
   let activityPage = 1;
   let activityLoading = false;
   const actionLabels = {speedup:"加速原交易",cancel:"取消原交易（零額自轉）",eth:"資產轉帳",transfer:"代幣轉帳",approve:"代幣授權",wrap:"ETH → WETH 包裝",unwrap:"WETH → ETH 解包",swap:"代幣兌換",vault_deposit:'存入合約',vault_withdraw:'取回錢包',escrow_fund:'付款至合約',escrow_release:'放款給收款人',escrow_refund:'退款給付款人'};
@@ -73,11 +74,10 @@
       showWalletError('wallet-error', results[0].reason);
     }
     if (results[1].status === 'fulfilled') {
-      renderHistory(results[1].value.transactions);
-      if (results[1].value.refreshError) $('wallet-history').prepend(node('p', results[1].value.refreshError, 'error'));
+      renderHistory(results[1].value.transactions, results[1].value.refreshError || '');
     }
     else {
-      $('wallet-history').replaceChildren(node('p', '無法更新紀錄，請稍後再試。', 'error'));
+      renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。');
       showWalletError('wallet-error', results[1].reason);
     }
     if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
@@ -90,8 +90,9 @@
     $('check-funding').disabled = false;
   }
 
-  function renderHistory(transactions) {
+  function renderHistory(transactions = historySnapshot, refreshError = historyRefreshError) {
     historySnapshot = transactions || [];
+    historyRefreshError = refreshError;
     const sent = historySnapshot.find(tx => tx.hash === $('send-feedback').dataset.hash);
     if (sent) showSent(sent);
     $('vault-history').replaceChildren();
@@ -105,6 +106,7 @@
     transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.symbol,tx.amount,actionLabels[tx.action],stateLabels[tx.state],window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
     const list = $('wallet-history');
     list.replaceChildren();
+    if (historyRefreshError) list.append(node('p', historyRefreshError, 'error'));
     if (!transactions?.length) { list.append(node('p', '尚無交易。第一筆轉帳會出現在這裡。', 'muted')); return; }
     for (const tx of transactions) {
       const row = node('article', '', 'history-row');
@@ -292,8 +294,8 @@
       explorer: explorerURL, prefix: networkPrefix, refresh: refreshWallet,
     }));
   }
-  $('history-search').addEventListener('input',()=>renderHistory(historySnapshot));
-  window.addEventListener('contacts-updated',()=>renderHistory(historySnapshot));
+  $('history-search').addEventListener('input',()=>renderHistory());
+  window.addEventListener('contacts-updated',()=>renderHistory());
   $('refresh-wallet').addEventListener('click', refreshWallet);
   $('check-funding').addEventListener('click', refreshWallet);
   $('prepare-self-transfer').addEventListener('click', () => {
@@ -837,9 +839,12 @@
     const current=flow,pending=current.pending;
     try {
       if (!historyFresh) {
-        const history = await walletRequest('/api/wallet/history');
+        const history = await walletRequest('/api/wallet/history').catch(error => {
+          renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。');
+          throw error;
+        });
         if (flow !== current || current.pending !== pending) return;
-        renderHistory(history.transactions);
+        renderHistory(history.transactions, history.refreshError || '');
       }
       if(!pending.hash){const known=historySnapshot.find(tx=>tx.quoteId===pending.quoteID);if(!known){renderFlow('尚未找到原報價的交易紀錄。請更新進度，或在原確認視窗重試同一筆報價。');return;}pending.hash=known.hash;saveFlow();}
       const original = historySnapshot.find(tx => tx.hash === pending.hash);

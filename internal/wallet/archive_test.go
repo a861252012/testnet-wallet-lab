@@ -15,7 +15,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 )
 
-func finalizedArchiveRecords(t *testing.T, count int) []*JournalRecord {
+func signedArchiveRecords(t *testing.T, count, finalizedCount int) []*JournalRecord {
 	t.Helper()
 	key, err := crypto.GenerateKey()
 	if err != nil {
@@ -25,7 +25,9 @@ func finalizedArchiveRecords(t *testing.T, count int) []*JournalRecord {
 	to := common.HexToAddress("0x2222222222222222222222222222222222222222")
 	records := make([]*JournalRecord, 0, count)
 	for i := 0; i < count; i += 1 {
-		tx, err := types.SignTx(types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(11155111), Nonce: uint64(i), To: &to, Gas: 21000, GasFeeCap: big.NewInt(2), GasTipCap: big.NewInt(1), Value: big.NewInt(1)}), types.LatestSignerForChainID(big.NewInt(11155111)), key)
+		// Unmined records are distinct signed replacements for the next nonce.
+		nonce := uint64(min(i, finalizedCount))
+		tx, err := types.SignTx(types.NewTx(&types.DynamicFeeTx{ChainID: big.NewInt(11155111), Nonce: nonce, To: &to, Gas: 21000, GasFeeCap: big.NewInt(int64(i + 2)), GasTipCap: big.NewInt(1), Value: big.NewInt(1)}), types.LatestSignerForChainID(big.NewInt(11155111)), key)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -33,7 +35,11 @@ func finalizedArchiveRecords(t *testing.T, count int) []*JournalRecord {
 		if err != nil {
 			t.Fatal(err)
 		}
-		records = append(records, &JournalRecord{Hash: TransactionHash(tx.Hash().Hex()), QuoteID: QuoteID(fmt.Sprint(i)), Nonce: uint64(i), SignedRaw: hexutil.Encode(raw), State: JournalSucceeded, Finalized: true, Version: 1, CreatedAt: time.Now().UTC()})
+		state := JournalSubmitted
+		if i < finalizedCount {
+			state = JournalSucceeded
+		}
+		records = append(records, &JournalRecord{Hash: TransactionHash(tx.Hash().Hex()), QuoteID: QuoteID(fmt.Sprint(i)), Nonce: nonce, SignedRaw: hexutil.Encode(raw), State: state, Finalized: i < finalizedCount, Version: 1, CreatedAt: time.Now().UTC()})
 	}
 	return records
 }
@@ -44,7 +50,7 @@ func TestArchivePreservesHistoryAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	jm.records = finalizedArchiveRecords(t, 900)
+	jm.records = signedArchiveRecords(t, 900, 900)
 	jm.records[899].Finalized = false
 	if err := jm.atomicSave(jm.records); err != nil {
 		t.Fatal(err)
@@ -85,7 +91,7 @@ func TestJournalArchivesTreatWalletDirectoryLiterally(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			dir := filepath.Join(root, name)
-			records := finalizedArchiveRecords(t, 3)
+			records := signedArchiveRecords(t, 3, 3)
 			// Create archives out of order; loading must retain filename order.
 			for _, item := range []struct {
 				path   string

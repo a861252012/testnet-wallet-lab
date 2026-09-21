@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -393,11 +394,11 @@ func TestSolanaExpiredUnconfirmedUnlocksPendingAndQuote(t *testing.T) {
 		t.Fatalf("reloaded state expected expired_unconfirmed, got %s", s.records[0].State)
 	}
 
-	// Verify single signature query failure does not abort History() or corrupt expired_unconfirmed state
+	// Query failure must be visible without corrupting the retained expired state.
 	statusesFail = true
 	histFail, err := s.History(context.Background())
-	if err != nil {
-		t.Fatalf("History returned error on single signature failure: %v", err)
+	if !errors.Is(err, errSolRPC) {
+		t.Fatalf("History must report the sanitized RPC failure, got %v", err)
 	}
 	if len(histFail) != 1 {
 		t.Fatalf("expected history to retain records even on query failure, got %d", len(histFail))

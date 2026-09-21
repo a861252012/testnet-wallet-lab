@@ -3,8 +3,15 @@ const { chromium } = require('playwright');
 const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const root = path.resolve(__dirname, '../..');
+// Render once with Go's production template engine; API responses remain local fixtures.
+const pages = JSON.parse(execFileSync('go', ['run', './tests/browser/render-templates'], {
+ cwd: root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024,
+ env: {...process.env, GOTOOLCHAIN: 'local', GOPROXY: 'off', GOSUMDB: 'off'},
+}));
 const address = '0x1111111111111111111111111111111111111111';
 const weth = '0xfff9976782d46cc05630d1f6ebab18b2324d6b14';
 const usdc = '0x1c7d4b196cb0c7b01d743fbc6116a902379c7238';
@@ -37,8 +44,8 @@ const server = http.createServer(async (req,res)=>{
    if(req.headers['x-wallet-csrf']!==csrf){res.statusCode=403;return respond({error:'fixture stale CSRF token'});}
   }
 
-  if(pathname==='/showcase'){res.setHeader('Content-Type','text/html');return res.end(await fs.readFile(path.join(root,'internal/web/templates/showcase.html')));}
-  if(pathname==='/tron/'){res.setHeader('Content-Type','text/html');return res.end((await fs.readFile(path.join(root,'internal/web/templates/tron.html'),'utf8')).replace(/{{if \.Shared}}([\s\S]*?){{end}}/g,(_,yes)=>url.searchParams.has('shared')?yes:''));}
+  if(pathname==='/showcase'){res.setHeader('Content-Type','text/html');return res.end(pages.showcase);}
+  if(pathname==='/tron/'){res.setHeader('Content-Type','text/html');return res.end(pages['tron-'+(url.searchParams.has('shared')?'shared':'private')]);}
   if(pathname==='/tron/api/status')return respond({exists:tronExists,address:tronAddress,csrfToken:tronCSRF});
   if(pathname==='/tron/api/create'){tronExists=true;return respond({address:tronAddress});}
   if(pathname==='/tron/api/balance')return respond({trx:'100',active:true,bandwidth:600,energy:0});
@@ -46,7 +53,7 @@ const server = http.createServer(async (req,res)=>{
   if(pathname==='/tron/api/token')return respond({contract:tronAddress,symbol:'TEST',balance:'1',decimals:6});
   if(pathname==='/tron/api/quote')return respond({...body,id:'tron-quote',symbol:body.contract?'TEST':'TRX',feeTrx:'0.3',feeLimitTrx:'0',energy:0,bandwidth:300,expiresAt:new Date(Date.now()+60000).toISOString()});
   if(pathname==='/tron/api/send'){tronSends += 1;tronHistory=[{signature:'1'.repeat(64),to:tronAddress,amount:'0.000001',symbol:'TRX',feeTrx:'0.001',state:'finalized',finalized:true}];return respond(tronHistory[0]);}
-  if(pathname==='/solana/'){res.setHeader('Content-Type','text/html');return res.end((await fs.readFile(path.join(root,'internal/web/templates/solana.html'),'utf8')).replace(/{{if \.Shared}}([\s\S]*?){{end}}/g,(_,yes)=>url.searchParams.has('shared')?yes:''));}
+  if(pathname==='/solana/'){res.setHeader('Content-Type','text/html');return res.end(pages['solana-'+(url.searchParams.has('shared')?'shared':'private')]);}
   if(pathname==='/solana/api/status')return respond({exists:solExists,address:solAddress,csrfToken:solCSRF});
   if(pathname==='/solana/api/create'){solExists=true;return respond({address:solAddress});}
   if(pathname==='/solana/api/balance'){if(balanceFailure){res.statusCode=502;return respond({error:'fixture Devnet unavailable'});}return respond({sol:'0.1',slot:100});}
@@ -54,7 +61,7 @@ const server = http.createServer(async (req,res)=>{
   if(pathname==='/solana/api/quote')return respond({...body,id:'sol-quote',feeSol:'0.000005',lastValidBlockHeight:200,expiresAt:new Date(Date.now()+60000).toISOString()});
   if(pathname==='/solana/api/send'){solSends += 1;solHistory=[{signature:'1'.repeat(88),to:solAddress,amount:'0.000001',state:'finalized',finalized:true}];return respond(solHistory[0]);}
   if(url.pathname.startsWith('/static/')){res.setHeader('Content-Type',url.pathname.endsWith('.css')?'text/css':'text/javascript');return res.end(await fs.readFile(path.join(root,'internal/web',url.pathname)));}
-  if(pathname==='/' || pathname==='' || pathname==='/public-demo' || pathname==='/shared-demo'){res.setHeader('Content-Type','text/html');return res.end((await fs.readFile(path.join(root,'internal/web/templates/index.html'),'utf8')).replace(/{{if \.Public}}([\s\S]*?){{else}}([\s\S]*?){{end}}/g,(_,yes,no)=>pathname==='/public-demo'?yes:no).replace(/{{if \.Public}}([\s\S]*?){{end}}/g,(_,yes)=>pathname==='/public-demo'?yes:'').replace(/{{if \.Shared}}([\s\S]*?){{end}}/g,(_,yes)=>pathname==='/shared-demo'?yes:'').replaceAll('{{.Native}}',chainId===80002?'POL':'ETH'));}
+  if(pathname==='/' || pathname==='' || pathname==='/public-demo' || pathname==='/shared-demo'){res.setHeader('Content-Type','text/html');return res.end(pages['index-'+(pathname==='/public-demo'?'public':pathname==='/shared-demo'?'shared':'private')+'-'+(chainId===80002?'POL':'ETH')]);}
   if(pathname==='/api/faucet' && req.method==='GET')return respond({enabled:true,csrfToken:'fixture'});
   if(pathname==='/api/faucet' && req.method==='POST'){
    assert.equal(req.headers['x-wallet-csrf'],'fixture'); assert.equal(body.address,address);
@@ -135,7 +142,10 @@ const server = http.createServer(async (req,res)=>{
  const page=await context.newPage(), errors=[];page.on('pageerror',error=>errors.push(String(error)));
  async function view(id){await page.evaluate(id=>{location.hash=id;},id);await page.waitForFunction(id=>document.body.dataset.view===id,id);}
  try {
-  await fs.mkdir('/tmp/wallet-vault-implementation',{recursive:true});
+  const screenshotRoot = process.env.FLOWLEDGER_UI_SCREENSHOTS || os.tmpdir();
+  await fs.mkdir(screenshotRoot,{recursive:true});
+  const screenshots = await fs.mkdtemp(path.join(screenshotRoot,'flowledger-browser-'));
+  console.log('Browser screenshots: '+screenshots);
   const publicRequests = [];
   const trackPublic = req => publicRequests.push(new URL(req.url()).pathname);
   page.on('request', trackPublic);
@@ -150,13 +160,13 @@ const server = http.createServer(async (req,res)=>{
   assert.equal(await page.locator('#vault-status').textContent(),'目前為唯讀展示');
   for (const selector of ['#vault-form','#vault-summary','#vault-history-section']) assert.equal(await page.locator(selector).isVisible(),false,'read-only visitor hides '+selector);
   await page.evaluate(()=>window.scrollTo(0,0));
-  await page.screenshot({path:'/tmp/wallet-vault-implementation/vault-readonly.png',fullPage:true,animations:'disabled'});
+  await page.screenshot({path:path.join(screenshots,'vault-readonly.png'),fullPage:true,animations:'disabled'});
   await view('balance-panel');
   await page.locator('#address').fill(address);
   await page.locator('#balance-form button[type=submit]').click();
   await page.waitForFunction(()=>document.getElementById('balance-result').textContent.includes('1000000000000000000'));
   await view('overview');
-  await page.screenshot({path:'/tmp/wallet-public-shared-layout.png',fullPage:true});
+  await page.screenshot({path:path.join(screenshots,'wallet-public-shared-layout.png'),fullPage:true});
   await page.setViewportSize({width:375,height:812});
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'public demo fits mobile');
   await page.setViewportSize({width:1280,height:900});
@@ -165,7 +175,8 @@ const server = http.createServer(async (req,res)=>{
   assert.match(await page.locator('#wallet-balance').textContent(),/1/);
   console.log('PASS: shared public wallet layout, read-only controls, public balance query, no private requests, mobile layout (mock APIs).');
   await page.goto(base+'/shared-demo#vault-panel');
-  await page.waitForFunction(()=>!document.querySelector('#vault-preview').disabled);
+  // Initial wallet loading and vault navigation can both refresh the balances.
+  await page.waitForFunction(()=>document.querySelector('#wallet-loading').hidden && !document.querySelector('#refresh-wallet').disabled && !document.querySelector('#vault-preview').disabled);
   assert.equal(await page.locator('#vault-deposited-balance').textContent(),'0.02 ETH');
   assert.equal(await page.locator('#vault-wallet-balance').textContent(),'1 ETH');
   for (const selector of ['#vault-form','#vault-summary','#vault-history-section']) assert.equal(await page.locator(selector).isVisible(),true,'enabled contract shows '+selector);
@@ -221,13 +232,13 @@ const server = http.createServer(async (req,res)=>{
     if(await page.getAttribute('html','data-theme')!==mode)await page.locator('#theme-toggle').click();
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`contract fits 375 px: ${locale} ${mode}`);
     await page.evaluate(()=>window.scrollTo(0,0));
-    await page.screenshot({path:`/tmp/wallet-vault-implementation/vault-${locale}-375-${mode}.png`,fullPage:true,animations:'disabled'});
+    await page.screenshot({path:path.join(screenshots,`vault-${locale}-375-${mode}.png`),fullPage:true,animations:'disabled'});
    }
   }
   await page.setViewportSize({width:1280,height:900});
   await page.locator('#theme-toggle').click();
   await page.evaluate(()=>window.scrollTo(0,0));
-  await page.screenshot({path:'/tmp/wallet-vault-implementation/vault-desktop.png',fullPage:true,animations:'disabled'});
+  await page.screenshot({path:path.join(screenshots,'vault-desktop.png'),fullPage:true,animations:'disabled'});
   await page.locator('#vault-deposit').check();
   vaultQuoteFailure=true;await page.locator('#vault-preview').click();
   await page.waitForFunction(()=>document.querySelector('#vault-error').textContent.includes('simulation reverted'));
@@ -242,7 +253,7 @@ const server = http.createServer(async (req,res)=>{
    if(locale==='en') assert.ok(!/[\u3400-\u9fff]/.test(await page.locator('#vault-panel').innerText()),'unconfigured contract English messages are translated');
   }
   await page.evaluate(()=>window.scrollTo(0,0));
-  await page.screenshot({path:'/tmp/wallet-vault-implementation/vault-unconfigured.png',fullPage:true,animations:'disabled'});
+  await page.screenshot({path:path.join(screenshots,'vault-unconfigured.png'),fullPage:true,animations:'disabled'});
   balanceFailure=false;
   vaultEnabled=true;vaultFailure=true;await page.locator('#vault-refresh').click();
   await page.waitForFunction(()=>document.querySelector('#vault-error').textContent.includes('vault unavailable'));
@@ -317,7 +328,7 @@ const server = http.createServer(async (req,res)=>{
   assert.equal(await page.locator('#activity-sync-settings').isVisible(),false);
   await page.locator('#activity-refresh').click();
   await page.waitForFunction(()=>document.querySelector('#activity-updated').textContent.includes('最後更新'));
-  await page.screenshot({path:'/tmp/wallet-ux-activity.png',fullPage:true});
+  await page.screenshot({path:path.join(screenshots,'wallet-ux-activity.png'),fullPage:true});
   await view('settings-panel');assert.equal(await page.locator('#password-form').isVisible(),false);
   await view('test-funding-panel');assert.equal(await page.locator('#claim-native').isVisible(),true);
   await page.locator('#claim-native').click();
@@ -335,7 +346,7 @@ const server = http.createServer(async (req,res)=>{
   await page.locator('#contacts-list button').filter({hasText:'編輯名稱'}).click();
   await page.locator('#contact-label').fill('UX 已改名');await page.locator('#contact-form button').click();
   assert.equal(await page.locator('#contacts-list strong').textContent(),'UX 已改名');
-  await page.screenshot({path:'/tmp/wallet-ux-contacts.png',fullPage:true});
+  await page.screenshot({path:path.join(screenshots,'wallet-ux-contacts.png'),fullPage:true});
   await page.locator('#contacts-list button').filter({hasText:'移除'}).click();assert.equal(await page.locator('#contacts-list strong').count(),0);
   await page.locator('#undo-contact').click();assert.equal(await page.locator('#contacts-list strong').textContent(),'UX 已改名');
   await page.locator('#contacts-list button').filter({hasText:'發送資產'}).click();
@@ -389,7 +400,7 @@ const server = http.createServer(async (req,res)=>{
   await page.waitForFunction(()=>document.querySelectorAll('#account-select option').length===2);
   await page.setViewportSize({width:390,height:844});
   assert.ok(await page.evaluate(()=>document.querySelector('#account-manager').getBoundingClientRect().width<=innerWidth));
-  await page.screenshot({path:'/tmp/flowledger-wallet-manager-mobile.png'});
+  await page.screenshot({path:path.join(screenshots,'flowledger-wallet-manager-mobile.png')});
   await page.keyboard.press('Escape');assert.equal(await page.locator('#account-manager').isVisible(),false);
   await page.setViewportSize({width:1280,height:900});
   assert.equal(await page.locator('#token-form, #token-contract').count(),0);
@@ -407,6 +418,7 @@ const server = http.createServer(async (req,res)=>{
   await view('contacts-panel');await page.locator('#contact-label').fill('<img src=x onerror=alert(1)>');await page.locator('#contact-address').fill(address);await page.locator('#contact-form button').click();
   assert.equal(await page.locator('#contacts-list img').count(),0);
   await view('send-panel');await page.locator('#contact-select').selectOption(address);assert.equal(await page.locator('#send-to').inputValue(),address);
+  await require('./history-freshness.cjs')(context, base);
   await require('./workspace-regression.cjs')(page);
   await require('./escrow-polling.cjs')(page);
   console.log('PASS: transaction and block queries reject stale successes/errors and clear invalidated results.');
@@ -592,8 +604,7 @@ const server = http.createServer(async (req,res)=>{
             assert.ok(Math.abs(assets.y-activity.y)<2 && assets.x<activity.x,'desktop overview groups assets beside history');
           }
           if (process.env.FLOWLEDGER_UI_SCREENSHOTS && locale==='en' && [375,1440].includes(width)) {
-            await fs.mkdir(process.env.FLOWLEDGER_UI_SCREENSHOTS,{recursive:true});
-            await page.screenshot({path:path.join(process.env.FLOWLEDGER_UI_SCREENSHOTS,`${family.replace('/','')||'evm'}-${width}-${mode}.png`),fullPage:true,animations:'disabled'});
+            await page.screenshot({path:path.join(screenshots,`${family.replace('/','')||'evm'}-${width}-${mode}.png`),fullPage:true,animations:'disabled'});
           }
         }
       }

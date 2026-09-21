@@ -35,6 +35,47 @@ func TestEVMActivityCSVUsesRawEvidence(t *testing.T) {
 	}
 }
 
+// TestEVMActivityCSVPreservesMultipleMovementsPerTransaction 驗證同一交易內的多筆資產異動產生多列合法業務邏輯，不按交易雜湊粗暴去重。
+func TestEVMActivityCSVPreservesMultipleMovementsPerTransaction(t *testing.T) {
+	txHash := "0x" + strings.Repeat("b", 64)
+	response := &wallet.ActivityResponse{
+		ChainID: 11155111,
+		Transactions: []*chain.Activity{
+			{
+				Hash:  txHash,
+				State: "succeeded",
+				Block: "100",
+				Movements: []chain.Movement{
+					{Kind: "send", Asset: "ETH", Raw: "1000000000000000000", Counterparty: "0x" + strings.Repeat("1", 40), Evidence: "transfer"},
+					{Kind: "fee", Asset: "ETH", Raw: "21000000000000", Counterparty: "", Evidence: "gas"},
+				},
+			},
+		},
+	}
+	var output bytes.Buffer
+	if err := writeEVMActivityCSV(&output, newEVMActivityResponse(response)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := csv.NewReader(&output).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 標題列 + 2 筆異動 = 3 列
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows (header + 2 movements), got %d: %v", len(rows), rows)
+	}
+	// 兩列異動皆具有相同的交易雜湊，但異動種類與金額不同
+	if rows[1][1] != txHash || rows[2][1] != txHash {
+		t.Fatalf("mismatched tx hash in rows: %s, %s", rows[1][1], rows[2][1])
+	}
+	if rows[1][5] != "send" || rows[1][7] != "1000000000000000000" {
+		t.Fatalf("first row movement mismatch: %v", rows[1])
+	}
+	if rows[2][5] != "fee" || rows[2][7] != "21000000000000" {
+		t.Fatalf("second row movement mismatch: %v", rows[2])
+	}
+}
+
 func TestEVMDTOsPreserveJSONContract(t *testing.T) {
 	now := time.Date(2026, time.September, 16, 1, 2, 3, 0, time.UTC)
 	activity := &chain.Activity{

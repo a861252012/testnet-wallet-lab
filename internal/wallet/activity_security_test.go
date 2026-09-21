@@ -27,14 +27,30 @@ func TestActivityIndexLimitsPreserveExistingEvidence(t *testing.T) {
 	if n, err := s.addActivityHashes(ids); err != nil || n != 0 {
 		t.Fatalf("duplicates: %d %v", n, err)
 	}
-	for _, batch := range [][]string{{fmt.Sprintf("0x%064x", 1001)}, {ids[0], "bad-hash"}} {
+	for _, batch := range [][]string{{ids[0], "bad-hash"}} {
 		if _, err := s.addActivityHashes(batch); err == nil {
-			t.Fatal("unbounded or invalid append accepted")
+			t.Fatal("invalid append accepted")
 		}
 		after, err := os.ReadFile(path)
 		if err != nil || !bytes.Equal(before, after) {
 			t.Fatal("rejected append changed evidence")
 		}
+	}
+	// Adding beyond 1000 triggers archiving: older records are preserved in activity-archive-*.json
+	if n, err := s.addActivityHashes([]string{fmt.Sprintf("0x%064x", 1001)}); err != nil || n != 1 {
+		t.Fatalf("archive append %d %v", n, err)
+	}
+	archives, err := filepath.Glob(filepath.Join(s.walletDir, "activity-archive-*.json"))
+	if err != nil || len(archives) == 0 {
+		t.Fatalf("no archive created: %v %v", archives, err)
+	}
+	activeData, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var activeIDs []string
+	if err := json.Unmarshal(activeData, &activeIDs); err != nil || len(activeIDs) > 1000 || len(activeData) > 128*1024 {
+		t.Fatalf("active file exceeds bounds: len=%d bytes=%d", len(activeIDs), len(activeData))
 	}
 	s.Close()
 	reopened, err := NewService(s.client, s.walletDir, 2, 1)
@@ -42,7 +58,7 @@ func TestActivityIndexLimitsPreserveExistingEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	if got, err := reopened.activityHashes(); err != nil || len(got) != 1000 {
+	if got, err := reopened.activityHashes(); err != nil || len(got) != 1001 {
 		t.Fatalf("restart: %d %v", len(got), err)
 	}
 }

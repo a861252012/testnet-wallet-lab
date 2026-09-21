@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/a861252012/testnet-wallet-lab/internal/chain"
 	"github.com/ethereum/go-ethereum/common"
@@ -42,11 +45,13 @@ type SyncResponse struct {
 // Bound both decoding and persistence; never discard transaction evidence to fit.
 const maxActivityHashes = 1000
 const maxActivityIndexBytes = 128 * 1024
+const activityActiveKeepCount = 200
 
 var errActivityIndexFull = errors.New("收支索引已達 1000 筆上限；請先由管理者備份並處理索引")
 
-func (s *Service) activityHashes() ([]string, error) {
-	f, err := os.Open(filepath.Join(s.walletDir, "activity.json"))
+// readActivityFile 讀取單一收支索引或封存檔，並驗證雙重硬邊界與雜湊格式。
+func readActivityFile(path string) ([]string, error) {
+	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return []string{}, nil
 	}
@@ -65,6 +70,9 @@ func (s *Service) activityHashes() ([]string, error) {
 	if json.Unmarshal(data, &ids) != nil {
 		return nil, errors.New("收支索引檔格式錯誤")
 	}
+	if ids == nil {
+		ids = []string{}
+	}
 	if len(ids) > maxActivityHashes {
 		return nil, errActivityIndexFull
 	}
@@ -76,44 +84,188 @@ func (s *Service) activityHashes() ([]string, error) {
 	return ids, nil
 }
 
-// addActivityHashes only persists public hashes; amounts are always reconstructed from current RPC evidence.
+// Validated hashes are 66 bytes each; 1,000 entries fit below the file size limit.
+func splitActivityArchiveChunks(hashes []string) [][]string {
+	var chunks [][]string
+	for len(hashes) > 0 {
+		n := min(len(hashes), maxActivityHashes)
+		chunks = append(chunks, hashes[:n])
+		hashes = hashes[n:]
+	}
+	return chunks
+}
+
+func (s *Service) activityArchivePaths() ([]string, error) {
+	entries, err := os.ReadDir(s.walletDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	// ReadDir 按檔名排序；只篩選檔名，避免將錢包目錄視為 Glob 模式。
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, "activity-archive-") && strings.HasSuffix(name, ".json") {
+			paths = append(paths, filepath.Join(s.walletDir, name))
+		}
+	}
+	return paths, nil
+}
+
+// nextActivityArchiveName keeps activity archives separate from transaction journals.
+func (s *Service) nextActivityArchiveName(existing []string) string {
+	now := time.Now().UTC().UnixNano()
+	if now <= s.lastActivityArchiveNano {
+		now = s.lastActivityArchiveNano + 1
+	}
+	for _, p := range existing {
+		base := filepath.Base(p)
+		var ts int64
+		if _, err := fmt.Sscanf(base, "activity-archive-%d.json", &ts); err == nil {
+			if ts >= now {
+				now = ts + 1
+			}
+		}
+	}
+	s.lastActivityArchiveNano = now
+	return filepath.Join(s.walletDir, fmt.Sprintf("activity-archive-%020d.json", now))
+}
+
+// activityHashes 載入所有封存檔與活躍檔，執行有序去重並維持完整歷史。
+func (s *Service) activityHashes() ([]string, error) {
+	paths, err := s.activityArchivePaths()
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var all []string
+	for _, path := range paths {
+		ids, err := readActivityFile(path)
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				all = append(all, id)
+			}
+		}
+	}
+	activePath := filepath.Join(s.walletDir, "activity.json")
+	activeIDs, err := readActivityFile(activePath)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range activeIDs {
+		if !seen[id] {
+			seen[id] = true
+			all = append(all, id)
+		}
+	}
+	return all, nil
+}
+
+// addActivityHashes writes archives before shortening the active index so a crash cannot lose hashes.
 func (s *Service) addActivityHashes(ids []string) (int, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	old, err := s.activityHashes()
-	if err != nil {
-		return 0, err
-	}
-	seen := map[string]bool{}
-	for _, id := range old {
-		seen[id] = true
-	}
-	count := 0
+
+	var validIDs []string
 	for _, id := range ids {
 		parsed, err := ParseTransactionHash(id)
 		if err != nil {
 			return 0, err
 		}
-		id = string(parsed)
-		if !seen[id] {
-			if len(old) >= maxActivityHashes {
-				return 0, errActivityIndexFull
-			}
-			old = append(old, id)
+		validIDs = append(validIDs, string(parsed))
+	}
+	if len(validIDs) == 0 {
+		return 0, nil
+	}
+
+	archivePaths, err := s.activityArchivePaths()
+	if err != nil {
+		return 0, err
+	}
+	seen := map[string]bool{}
+	for _, path := range archivePaths {
+		archivedIDs, err := readActivityFile(path)
+		if err != nil {
+			return 0, err
+		}
+		for _, id := range archivedIDs {
 			seen[id] = true
+		}
+	}
+
+	activePath := filepath.Join(s.walletDir, "activity.json")
+	activeIDs, err := readActivityFile(activePath)
+	if err != nil {
+		return 0, err
+	}
+
+	var deduplicatedActive []string
+	for _, id := range activeIDs {
+		if !seen[id] {
+			seen[id] = true
+			deduplicatedActive = append(deduplicatedActive, id)
+		}
+	}
+
+	count := 0
+	var toAppend []string
+	for _, id := range validIDs {
+		if !seen[id] {
+			seen[id] = true
+			toAppend = append(toAppend, id)
 			count += 1
 		}
 	}
 	if count == 0 {
 		return 0, nil
 	}
-	data, err := json.Marshal(old)
+
+	combined := append(deduplicatedActive, toAppend...)
+	data, err := json.Marshal(combined)
 	if err != nil {
 		return 0, err
 	}
-	if err := atomicWriteFile(filepath.Join(s.walletDir, "activity.json"), data, 0600); err != nil {
+
+	if len(combined) <= maxActivityHashes {
+		if err := atomicWriteFile(activePath, data, 0600); err != nil {
+			return 0, err
+		}
+		return count, nil
+	}
+
+	toArchive := combined[:len(combined)-activityActiveKeepCount]
+	toKeep := combined[len(combined)-activityActiveKeepCount:]
+
+	chunks := splitActivityArchiveChunks(toArchive)
+	writeArchive := s.writeActivityArchive
+	if writeArchive == nil {
+		writeArchive = atomicWriteFile
+	}
+	for _, chunk := range chunks {
+		chunkData, err := json.Marshal(chunk)
+		if err != nil {
+			return 0, err
+		}
+		archivePath := s.nextActivityArchiveName(archivePaths)
+		if err := writeArchive(archivePath, chunkData, 0600); err != nil {
+			return 0, err
+		}
+	}
+
+	keepData, err := json.Marshal(toKeep)
+	if err != nil {
 		return 0, err
 	}
+	if err := atomicWriteFile(activePath, keepData, 0600); err != nil {
+		return 0, err
+	}
+
 	return count, nil
 }
 
