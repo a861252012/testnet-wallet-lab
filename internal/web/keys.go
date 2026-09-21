@@ -20,6 +20,9 @@ func registerKeyRoutes(mux *http.ServeMux, csrf string, service keyService) {
 			respondWallet(w, 400, nil, err)
 			return
 		}
+		if !allowSharedPasswordAttempt(w, r, req.Password) {
+			return
+		}
 		backup, err := service.Backup(req.Password)
 		if err != nil {
 			respondWallet(w, 400, nil, err)

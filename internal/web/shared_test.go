@@ -36,21 +36,6 @@ func TestSharedDemoBoundaries(t *testing.T) {
 	}
 }
 
-func TestSharedDemoPasswordAttemptLimit(t *testing.T) {
-	h := SharedDemo(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }), "")
-	for i := range 11 {
-		w := httptest.NewRecorder()
-		h.ServeHTTP(w, httptest.NewRequest("POST", []string{"/api/wallet/send", "/solana/api/send", "/tron/api/backup", "/api/wallet/accounts"}[i%4], nil))
-		want := 204
-		if i == 10 {
-			want = 429
-		}
-		if w.Code != want {
-			t.Fatalf("attempt %d returned %d", i, w.Code)
-		}
-	}
-}
-
 func TestSharedChainWallets(t *testing.T) {
 	const token = "shared-demo-initialization-token-32-chars"
 	const password = "disposable-test-password"

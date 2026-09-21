@@ -87,10 +87,14 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
       - name: Build and test exact release image
         run: |
           docker build -f Dockerfile.deploy --build-arg APP_VERSION="$GITHUB_SHA" -t "ghcr.io/a861252012/testnet-wallet-lab:sha-$GITHUB_SHA" .
@@ -107,6 +111,20 @@ jobs:
           digest=${ref#*@}
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - name: Sign and verify the tested release digest
+        env:
+          RELEASE_DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          image="ghcr.io/a861252012/testnet-wallet-lab@$RELEASE_DIGEST"
+          cosign sign --yes "$image"
+          cosign verify \
+            --certificate-identity 'https://github.com/a861252012/testnet-wallet-lab/.github/workflows/verify.yml@refs/heads/main' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            --certificate-github-workflow-repository 'a861252012/testnet-wallet-lab' \
+            --certificate-github-workflow-ref 'refs/heads/main' \
+            --certificate-github-workflow-trigger 'push' \
+            --certificate-github-workflow-sha "$GITHUB_SHA" \
+            "$image" >/dev/null
       - if: always()
         run: docker logout ghcr.io
   live:

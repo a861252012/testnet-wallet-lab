@@ -178,3 +178,77 @@ func TestReceiptEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestConfirmationRPCMustBeExplicitAndIndependent(t *testing.T) {
+	for _, pair := range [][2]string{
+		{"https://rpc.example", ""}, {"https://rpc.example", "https://RPC.EXAMPLE./other"},
+		{"http://127.0.0.1:1234", "http://localhost:5678"}, {"file:///rpc", "https://other.example"},
+	} {
+		if validateConfirmationRPC(pair[0], pair[1]) == nil {
+			t.Fatalf("accepted %v", pair)
+		}
+	}
+	if err := validateConfirmationRPC("https://a.example", "https://b.example"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfirmedSenderRejectsSubstitutionAndMalformedResponses(t *testing.T) {
+	owner := common.HexToAddress("0x1234")
+	expected := common.HexToAddress("0x5678")
+	args := append(common.LeftPadBytes(owner.Bytes(), 32), make([]byte, 32)...)
+	encoded := common.LeftPadBytes(expected.Bytes(), 32)
+	server := func(result []byte, network string) *ethclient.Client {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var call struct {
+				ID     json.RawMessage
+				Method string
+				Params []json.RawMessage
+			}
+			if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+				t.Error(err)
+				return
+			}
+			var value any = network
+			if call.Method == "eth_call" {
+				var msg map[string]string
+				json.Unmarshal(call.Params[0], &msg)
+				if common.HexToAddress(msg["to"]) != factory || msg["input"] != hexutil.Encode(append(crypto.Keccak256([]byte("getAddress(address,uint256)"))[:4], args...)) {
+					t.Error("wrong factory query")
+				}
+				value = hexutil.Encode(result)
+			} else if call.Method != "eth_chainId" {
+				t.Errorf("unexpected %s", call.Method)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": call.ID, "result": value})
+		}))
+		t.Cleanup(srv.Close)
+		c, err := ethclient.Dial(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(c.Close)
+		return c
+	}
+	good := server(encoded, "0xaa36a7")
+	if got, err := confirmedSender(context.Background(), good, server(encoded, "0xaa36a7"), args); err != nil || got != expected {
+		t.Fatalf("agreement: %s %v", got, err)
+	}
+	padding := append([]byte{}, encoded...)
+	padding[0] = 1
+	for _, tc := range []struct {
+		data  []byte
+		chain string
+	}{
+		{common.LeftPadBytes(owner.Bytes(), 32), "0xaa36a7"}, {make([]byte, 32), "0xaa36a7"},
+		{encoded[1:], "0xaa36a7"}, {append(encoded, 0), "0xaa36a7"}, {padding, "0xaa36a7"}, {encoded, "0x1"},
+	} {
+		bad := server(tc.data, tc.chain)
+		for _, pair := range [][2]*ethclient.Client{{bad, good}, {good, bad}} {
+			if got, err := confirmedSender(context.Background(), pair[0], pair[1], args); err == nil || got != (common.Address{}) {
+				t.Fatal("unsafe funding address escaped")
+			}
+		}
+	}
+}

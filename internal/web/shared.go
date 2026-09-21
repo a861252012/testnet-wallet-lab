@@ -12,6 +12,7 @@ import (
 )
 
 type sharedDemoKey struct{}
+type sharedAttemptKey struct{}
 
 var errSharedDemo = errors.New("共用 Demo 不提供錢包管理與背景掃描操作")
 var errSharedAttempts = errors.New("密碼操作過於頻繁，請稍後再試")
@@ -81,22 +82,40 @@ func SharedDemo(next http.Handler, token string) http.Handler {
 				return
 			}
 			if route == "/api/wallet/accounts" || strings.HasSuffix(route, "/send") || strings.HasSuffix(route, "/backup") {
-				mu.Lock()
-				if time.Since(window) >= time.Minute {
-					window, attempts = time.Now(), 0
-				}
-				limited := attempts >= 10
-				if !limited {
+				// Charge only after the handler has checked CSRF and decoded the request.
+				r = r.WithContext(context.WithValue(r.Context(), sharedAttemptKey{}, func() bool {
+					mu.Lock()
+					defer mu.Unlock()
+					if time.Since(window) >= time.Minute {
+						window, attempts = time.Now(), 0
+					}
+					if attempts >= 10 {
+						return false
+					}
 					attempts++
-				}
-				mu.Unlock()
-				if limited {
-					w.Header().Set("Retry-After", "60")
-					respondWallet(w, http.StatusTooManyRequests, nil, errSharedAttempts)
-					return
-				}
+					return true
+				}))
 			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sharedDemoKey{}, true)))
 	})
+}
+
+// Password verification remains in the wallet service; malformed requests must
+// not consume the shared password-attempt budget.
+func allowSharedPasswordAttempt(w http.ResponseWriter, r *http.Request, password string) bool {
+	charge, shared := r.Context().Value(sharedAttemptKey{}).(func() bool)
+	if !shared {
+		return true
+	}
+	if password == "" {
+		respondWallet(w, http.StatusBadRequest, nil, errors.New("請提供錢包密碼"))
+		return false
+	}
+	if !charge() {
+		w.Header().Set("Retry-After", "60")
+		respondWallet(w, http.StatusTooManyRequests, nil, errSharedAttempts)
+		return false
+	}
+	return true
 }

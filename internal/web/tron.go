@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"net/http"
 	"time"
@@ -85,6 +86,13 @@ func NewTron(service *wallet.TronService, csrf string) (http.Handler, error) {
 				}
 				if err := decodeStrictJSON(w, r, &req); err != nil {
 					respondWallet(w, 400, nil, err)
+					return
+				}
+				if r.Context().Value(sharedDemoKey{}) == true && req.ID == "" {
+					respondWallet(w, 400, nil, errors.New("請提供交易報價識別碼"))
+					return
+				}
+				if !allowSharedPasswordAttempt(w, r, req.Password) {
 					return
 				}
 				result, err := service.Send(ctx, req.ID, req.Password)

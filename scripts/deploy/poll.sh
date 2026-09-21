@@ -15,7 +15,8 @@ if [[ -f "$base/current-image" ]]; then
   revision=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$current")
   [[ "$revision" != "$head" ]] || exit 0
 fi
-# A failed/pending CI has no release tag. Pull failure never stops the old app.
+# A tag only locates a candidate; wallet-deploy must authenticate its digest.
+# Missing/invalid signatures and pull failures never stop the old app.
 docker pull "$repository:sha-$head"
 ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$repository:sha-$head")
 [[ "$ref" =~ ^ghcr.io/a861252012/testnet-wallet-lab@sha256:[a-f0-9]{64}$ ]] || exit 1

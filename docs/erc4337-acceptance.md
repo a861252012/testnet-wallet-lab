@@ -44,12 +44,13 @@ go vet ./internal/wallet/erc4337
 
 ## 重跑公開證據
 
-不需要金鑰，也不會簽署、廣播或修改檔案：
+先將 `INDEPENDENT_SEPOLIA_RPC` 設為與 `--rpc` 不同供應商的 Sepolia HTTP(S) endpoint。以下不需要金鑰，也不會簽署、廣播或修改檔案：
 
 ```sh
 go run ./cmd/accept-erc4337 --verify \
   --dir docs/evidence/erc4337-sepolia-v06 \
-  --owner 0x88E151447b16749509e28edAdC6093B03d0f8177
+  --owner 0x88E151447b16749509e28edAdC6093B03d0f8177 \
+  --confirm-rpc "$INDEPENDENT_SEPOLIA_RPC"
 ```
 
 指令會重算 UserOperation hash、驗證簽章，再核對 Bundler 收據、節點交易收據、canonical block、AccountDeployed／UserOperationEvent、帳戶 owner／EntryPoint，以及收款地址在該區塊增加的 1 wei。缺少資料或任一項不符就失敗；不把收據成功直接當成 finalized。
@@ -57,11 +58,13 @@ go run ./cmd/accept-erc4337 --verify \
 ## 建立自己的驗收
 
 ```sh
-go run ./cmd/accept-erc4337 --dir data/my-aa-test
-# 將 Sepolia 測試 ETH 轉到指令列出的 sender。
-go run ./cmd/accept-erc4337 --dir data/my-aa-test --send
-go run ./cmd/accept-erc4337 --dir data/my-aa-test --verify
+go run ./cmd/accept-erc4337 --confirm-rpc "$INDEPENDENT_SEPOLIA_RPC" --dir data/my-aa-test
+# 只有兩個獨立供應商確認一致後，指令才會列出 sender；核對後再入金。
+go run ./cmd/accept-erc4337 --confirm-rpc "$INDEPENDENT_SEPOLIA_RPC" --dir data/my-aa-test --send
+go run ./cmd/accept-erc4337 --confirm-rpc "$INDEPENDENT_SEPOLIA_RPC" --dir data/my-aa-test --verify
 ```
+
+`--confirm-rpc` 為必要參數，省略、相同 host、任一 RPC 非 Sepolia、回應地址為零／ABI padding 不正確或兩邊地址不同時，都不會列出可入金地址，也不會簽署或廣播。不同 URL 路徑／連接埠不算獨立來源；不同 host 也不保證不同經營者，選用獨立供應商是操作前提。這能阻擋單一 RPC 替換入金地址，不能防止兩家共同回報假資料，亦不等於本地 CREATE2 推導或共識證明。
 
 指令使用 Candide 公開 Bundler `https://api.candide.dev/public/v3/11155111`，單筆 gas 上限為 0.003 測試 ETH。簽署結果會先寫入 `operation.json` 並同步磁碟，再送出；重跑只使用同一筆操作。若等待逾時，可用 `--verify` 查詢，或用 `--send` 重送原操作，不會自動加價。
 

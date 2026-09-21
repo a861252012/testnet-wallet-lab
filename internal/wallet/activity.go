@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -38,17 +39,34 @@ type SyncResponse struct {
 	Added int    `json:"added"`
 }
 
+// Bound both decoding and persistence; never discard transaction evidence to fit.
+const maxActivityHashes = 1000
+const maxActivityIndexBytes = 128 * 1024
+
+var errActivityIndexFull = errors.New("收支索引已達 1000 筆上限；請先由管理者備份並處理索引")
+
 func (s *Service) activityHashes() ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(s.walletDir, "activity.json"))
+	f, err := os.Open(filepath.Join(s.walletDir, "activity.json"))
 	if os.IsNotExist(err) {
 		return []string{}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxActivityIndexBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > maxActivityIndexBytes {
+		return nil, errors.New("收支索引檔超過大小上限")
+	}
 	var ids []string
 	if json.Unmarshal(data, &ids) != nil {
 		return nil, errors.New("收支索引檔格式錯誤")
+	}
+	if len(ids) > maxActivityHashes {
+		return nil, errActivityIndexFull
 	}
 	for _, id := range ids {
 		if _, err := ParseTransactionHash(id); err != nil {
@@ -72,7 +90,15 @@ func (s *Service) addActivityHashes(ids []string) (int, error) {
 	}
 	count := 0
 	for _, id := range ids {
+		parsed, err := ParseTransactionHash(id)
+		if err != nil {
+			return 0, err
+		}
+		id = string(parsed)
 		if !seen[id] {
+			if len(old) >= maxActivityHashes {
+				return 0, errActivityIndexFull
+			}
 			old = append(old, id)
 			seen[id] = true
 			count += 1

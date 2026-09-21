@@ -7,6 +7,7 @@ docker compose version >/dev/null
 command -v python3 >/dev/null
 command -v curl >/dev/null
 command -v flock >/dev/null
+[[ -x /usr/local/bin/cosign ]] || { echo "Install verified Cosign v3.1.3 at /usr/local/bin/cosign first" >&2; exit 1; }
 base=/opt/testnet-wallet-lab
 [[ ! -e "$base" && ! -e /usr/local/sbin/wallet-deploy ]] || { echo 'Already installed; review upgrades manually' >&2; exit 1; }
 root=$(cd "$(dirname "$0")/../.." && pwd)

@@ -23,6 +23,7 @@ class DeployTests(unittest.TestCase):
         source = (ROOT / "scripts/deploy/deploy.sh").read_text()
         source = source.replace("readonly base=/opt/testnet-wallet-lab", "readonly base=" + shlex.quote(str(self.base)))
         source = source.replace("export PATH=/usr/sbin:/usr/bin:/sbin:/bin", "export PATH=" + shlex.quote(str(self.bin) + os.pathsep + os.environ["PATH"]))
+        source = source.replace("/usr/local/bin/cosign", shlex.quote(str(self.bin / "cosign")))
         self.script = self.base / "deploy.sh"
         self.script.write_text(source)
         (self.base / "current-image").write_text(OLD + "\n")
@@ -37,6 +38,12 @@ command=Path(sys.argv[0]).name
 args=sys.argv[1:]
 with (base/"calls").open("a") as f: f.write(json.dumps([command,args,os.getenv("APP_IMAGE","")])+"\\n")
 if command=="curl": print(json.dumps({"sha":os.environ["FIXTURE_MAIN"]}))
+if command=="cosign":
+ if os.environ.get("TUF_ROOT") != str(base/".sigstore"): sys.exit(2)
+ expected={"--certificate-identity":"https://github.com/a861252012/testnet-wallet-lab/.github/workflows/verify.yml@refs/heads/main", "--certificate-oidc-issuer":"https://token.actions.githubusercontent.com", "--certificate-github-workflow-repository":"a861252012/testnet-wallet-lab", "--certificate-github-workflow-ref":"refs/heads/main", "--certificate-github-workflow-trigger":"push", "--certificate-github-workflow-sha":os.environ["FIXTURE_MAIN"]}
+ if args[0]!="verify" or any(k not in args or args[args.index(k)+1]!=v for k,v in expected.items()): sys.exit(2)
+ if args[-1]!="ghcr.io/a861252012/testnet-wallet-lab@sha256:"+"b"*64: sys.exit(2)
+ if os.getenv("BAD_SIGNATURE"): sys.exit(1)
 if command=="docker":
  if args[:2]==["image","inspect"]:
   print("c"*40 if args[-1].endswith("d"*64) else ("e"*40 if os.getenv("BAD_LABEL") else "a"*40))
@@ -49,7 +56,7 @@ if command=="docker":
    if os.getenv("FAIL_ROLLBACK") and old: sys.exit(1)
   if "ps" in args: print("fixture-container")
 '''
-        for name in ["docker", "curl", "flock"]:
+        for name in ["docker", "curl", "flock", "cosign"]:
             p = self.bin / name
             p.write_text(fake)
             p.chmod(0o755)
@@ -65,6 +72,17 @@ if command=="docker":
         result = self.run_deploy()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.base/"current-image").read_text().strip(), "ghcr.io/a861252012/testnet-wallet-lab@"+DIGEST)
+
+    def test_signature_failure_never_pulls_or_stops(self):
+        result = self.run_deploy(BAD_SIGNATURE="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(any(x[0] == "docker" for x in self.calls()))
+        self.assertEqual((self.base/"current-image").read_text().strip(), OLD)
+
+    def test_missing_verifier_fails_closed(self):
+        (self.bin/"cosign").unlink()
+        self.assertNotEqual(self.run_deploy().returncode, 0)
+        self.assertFalse(any(x[0] == "docker" for x in self.calls()))
 
     def test_stale_commit_never_stops_service(self):
         self.assertNotEqual(self.run_deploy(FIXTURE_MAIN="f"*40).returncode, 0)

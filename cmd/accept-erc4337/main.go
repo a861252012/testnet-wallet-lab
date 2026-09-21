@@ -11,8 +11,11 @@ import (
 	"flag"
 	"fmt"
 	"math/big"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -39,11 +42,15 @@ func main() {
 func run() error {
 	dir := flag.String("dir", "data/erc4337-acceptance", "dedicated acceptance wallet and operation directory")
 	rpcURL := flag.String("rpc", "https://ethereum-sepolia-rpc.publicnode.com", "Sepolia RPC")
+	confirmRPC := flag.String("confirm-rpc", "", "required Sepolia RPC from an independent provider to confirm the funding address")
 	bundlerURL := flag.String("bundler", "https://api.candide.dev/public/v3/11155111", "Sepolia bundler")
 	send := flag.Bool("send", false, "sign and submit one operation; later runs reuse it")
 	verify := flag.Bool("verify", false, "verify the saved operation without signing or sending")
 	publicOwner := flag.String("owner", "", "public owner address for --verify without a keystore")
 	flag.Parse()
+	if err := validateConfirmationRPC(*rpcURL, *confirmRPC); err != nil {
+		return err
+	}
 	if *send && *verify {
 		return errors.New("choose --send or --verify")
 	}
@@ -136,14 +143,15 @@ func run() error {
 	}
 	owner := common.HexToAddress(ownerString)
 	args := append(common.LeftPadBytes(owner.Bytes(), 32), make([]byte, 32)...)
-	result, err := node.CallContract(ctx, ethereum.CallMsg{To: &factory, Data: append(crypto.Keccak256([]byte("getAddress(address,uint256)"))[:4], args...)}, nil)
+	confirmation, err := ethclient.DialContext(ctx, *confirmRPC)
+	if err != nil {
+		return errors.New("cannot connect to independent confirmation RPC")
+	}
+	defer confirmation.Close()
+	sender, err := confirmedSender(ctx, node, confirmation, args)
 	if err != nil {
 		return err
 	}
-	if len(result) != 32 {
-		return errors.New("invalid factory address response")
-	}
-	sender := common.BytesToAddress(result)
 	balance, err := node.BalanceAt(ctx, sender, nil)
 	if err != nil {
 		return err
@@ -425,4 +433,53 @@ func verifyReceipt(ctx context.Context, node *ethclient.Client, op *aa.UserOpera
 	// Save the checked node receipt; this bundler omits the nested status field.
 	r.Receipt = txr
 	return nil
+}
+
+// Distinct hosts catch accidental reuse, not common ownership. The operator must
+// choose independent providers; agreement is not a consensus or CREATE2 proof.
+func validateConfirmationRPC(primary, confirmation string) error {
+	a, errA := url.Parse(primary)
+	b, errB := url.Parse(confirmation)
+	if errA != nil || errB != nil || a.Hostname() == "" || b.Hostname() == "" ||
+		(a.Scheme != "https" && a.Scheme != "http") || (b.Scheme != "https" && b.Scheme != "http") {
+		return errors.New("--rpc and --confirm-rpc must be HTTP(S) endpoints from independent providers")
+	}
+	normalize := func(host string) string {
+		host = strings.ToLower(strings.TrimSuffix(host, "."))
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.IsLoopback() {
+				return "localhost"
+			}
+			return ip.String()
+		}
+		return host
+	}
+	if normalize(a.Hostname()) == normalize(b.Hostname()) {
+		return errors.New("confirmation RPC must use an independent provider, not the same host")
+	}
+	return nil
+}
+
+func confirmedSender(ctx context.Context, primary, confirmation *ethclient.Client, args []byte) (common.Address, error) {
+	var sender common.Address
+	for i, node := range []*ethclient.Client{primary, confirmation} {
+		id, err := node.ChainID(ctx)
+		if err != nil || id.Cmp(chainID) != 0 {
+			return common.Address{}, errors.New("funding address confirmation requires two Sepolia RPCs")
+		}
+		result, err := node.CallContract(ctx, ethereum.CallMsg{To: &factory, Data: append(crypto.Keccak256([]byte("getAddress(address,uint256)"))[:4], args...)}, nil)
+		if err != nil {
+			return common.Address{}, errors.New("cannot confirm factory address with both RPCs")
+		}
+		if len(result) != 32 || !bytes.Equal(result[:12], make([]byte, 12)) || common.BytesToAddress(result) == (common.Address{}) {
+			return common.Address{}, errors.New("invalid factory address response")
+		}
+		address := common.BytesToAddress(result)
+		if i == 0 {
+			sender = address
+		} else if sender != address {
+			return common.Address{}, errors.New("RPCs disagree on the funding address; do not transfer funds")
+		}
+	}
+	return sender, nil
 }

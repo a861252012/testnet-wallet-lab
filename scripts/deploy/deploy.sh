@@ -14,6 +14,16 @@ flock -w 180 9
 # Query inside the deployment lock; a slower old CI run must not overwrite main.
 head=$(curl --fail --silent --show-error --max-time 20 -H 'Cache-Control: no-cache' https://api.github.com/repos/a861252012/testnet-wallet-lab/commits/main | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
 [[ "$head" == "$revision" ]] || { echo 'Refusing stale commit; main has moved' >&2; exit 1; }
+# A tag and an OCI revision label are attacker-controlled registry metadata.
+# Verify the exact digest, workflow identity and source commit before any pull/stop.
+TUF_ROOT="$base/.sigstore" /usr/local/bin/cosign verify \
+  --certificate-identity 'https://github.com/a861252012/testnet-wallet-lab/.github/workflows/verify.yml@refs/heads/main' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  --certificate-github-workflow-repository 'a861252012/testnet-wallet-lab' \
+  --certificate-github-workflow-ref 'refs/heads/main' \
+  --certificate-github-workflow-trigger 'push' \
+  --certificate-github-workflow-sha "$revision" \
+  "$image" >/dev/null
 docker pull "$image"
 actual=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image")
 [[ "$actual" == "$revision" ]] || { echo 'Image revision mismatch' >&2; exit 1; }

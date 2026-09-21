@@ -157,6 +157,9 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 				return
 			}
 		}
+		if !allowSharedPasswordAttempt(w, r, req.Password) {
+			return
+		}
 		result, err := ws.AddAccount(req.Name, req.Password)
 		if err != nil {
 			respondWallet(w, 400, nil, err)
@@ -235,6 +238,9 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 		}
 		if err := decodeStrictJSON(w, r, &req); err != nil {
 			respondWallet(w, http.StatusBadRequest, nil, err)
+			return
+		}
+		if !allowSharedPasswordAttempt(w, r, req.Password) {
 			return
 		}
 		res, err := ws.Backup(req.Password)
@@ -341,6 +347,13 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 		}
 		if err := decodeStrictJSON(w, r, &req); err != nil {
 			respondWallet(w, http.StatusBadRequest, nil, err)
+			return
+		}
+		if r.Context().Value(sharedDemoKey{}) == true && req.QuoteID == "" {
+			respondWallet(w, 400, nil, errors.New("請提供交易報價識別碼"))
+			return
+		}
+		if !allowSharedPasswordAttempt(w, r, req.Password) {
 			return
 		}
 		ctx, cancel := context.WithTimeout(r.Context(), 40*time.Second)
