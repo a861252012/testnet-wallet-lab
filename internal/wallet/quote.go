@@ -16,6 +16,7 @@ import (
 )
 
 type BoundQuote struct {
+	Escrow               *EscrowPreview
 	RollupFeeWei         *big.Int
 	ReplacementERC20     bool
 	ReplacementCount     int
@@ -134,11 +135,22 @@ func CreateQuote(ctx context.Context, provider ChainQuoteProvider, from common.A
 		calldata     []byte
 		methodName   string
 		exchange     *ExchangePreview
+		escrow       *EscrowPreview
 		amountRaw    *big.Int
 		amount       = command.Amount
 	)
 
 	switch action {
+	case ActionEscrowFund, ActionEscrowRelease, ActionEscrowRefund:
+		prepared, err := prepareEscrow(ctx, provider, from, command)
+		if err != nil {
+			return nil, err
+		}
+		contractAddr = common.HexToAddress(string(command.Contract))
+		txTo, txValue = contractAddr, big.NewInt(0)
+		targetAddr, calldata, methodName = prepared.To, prepared.Data, prepared.Method
+		amountRaw, amount, symbol, decimals = prepared.Amount, FormatUnits(prepared.Amount, 6), "USDC", 6
+		escrow = prepared.Preview
 	case ActionVaultDeposit, ActionVaultWithdraw:
 		if provider.ChainID() != 11155111 {
 			return nil, errors.New("此合約目前僅支援 Ethereum Sepolia 測試網")
@@ -378,6 +390,7 @@ func CreateQuote(ctx context.Context, provider ChainQuoteProvider, from common.A
 	}
 
 	return &BoundQuote{
+		Escrow:               escrow,
 		ID:                   quoteID,
 		Action:               action,
 		From:                 from,
@@ -420,6 +433,7 @@ func (q *BoundQuote) ToResponse() *QuoteResponse {
 		rollup = FormatUnits(q.RollupFeeWei, 18)
 	}
 	return &QuoteResponse{
+		Escrow:               q.Escrow,
 		RollupFeeETH:         rollup,
 		ID:                   string(q.ID),
 		Action:               string(q.Action),

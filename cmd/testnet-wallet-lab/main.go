@@ -72,6 +72,11 @@ func run() error {
 			return err
 		}
 	}
+	if config.sepoliaEscrow != "" {
+		if err := walletService.SetEscrow(config.sepoliaEscrow, wallet.USDCAddress); err != nil {
+			return err
+		}
+	}
 	if config.sharedDemo {
 		info, err := walletService.Status()
 		if err != nil {

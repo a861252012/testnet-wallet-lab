@@ -208,14 +208,14 @@ const server = http.createServer(async (req,res)=>{
   assert.match(await page.locator('#vault-history').textContent(),/鏈上執行成功/);
   for(const locale of ['en','zh-CN','zh-TW']) {
    await page.locator('#language-select').selectOption(locale);
-   await page.waitForFunction(()=>document.querySelector('#vault-panel h2').textContent===window.FlowI18n.t('ETH 存入與取回'));
+   await page.waitForFunction(()=>document.querySelector('#vault-eth-content h2').textContent===window.FlowI18n.t('ETH 存入與取回'));
    assert.equal(await page.locator('#vault-amount').inputValue(),'0.001','locale switch preserves amount');
    assert.equal(await page.locator('#vault-withdraw').isChecked(),true,'locale switch preserves action');
    assert.equal(await page.locator('#vault-deposited-balance').textContent(),'0.02 ETH');
-   await page.locator('#vault-panel details summary').click();
+   await page.locator('#vault-eth-content details summary').click();
    if(locale==='en') assert.ok(!/[\u3400-\u9fff]/.test(await page.locator('#vault-panel').innerText()),'contract English messages are translated');
-   await page.locator('#vault-panel details summary').click();
-   if(locale==='zh-CN') assert.equal(await page.locator('#vault-panel h2').textContent(),'ETH 存入与取回');
+   await page.locator('#vault-eth-content details summary').click();
+   if(locale==='zh-CN') assert.equal(await page.locator('#vault-eth-content h2').textContent(),'ETH 存入与取回');
    await page.setViewportSize({width:375,height:812});
    for(const mode of ['light','dark']) {
     if(await page.getAttribute('html','data-theme')!==mode)await page.locator('#theme-toggle').click();

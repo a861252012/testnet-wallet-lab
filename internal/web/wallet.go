@@ -50,6 +50,7 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 	}
 
 	walletFilter := func(handler http.HandlerFunc) http.HandlerFunc { return localWalletFilter(ws.CSRFToken(), handler) }
+	registerEscrowRoutes(mux, ws, walletFilter)
 
 	mux.HandleFunc("POST /api/wallet/exchange/pools", walletFilter(func(w http.ResponseWriter, r *http.Request) {
 		var req evmQuoteRequest

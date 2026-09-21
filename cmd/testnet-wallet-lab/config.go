@@ -47,6 +47,7 @@ type networkRuntimeConfig struct {
 type runtimeConfig struct {
 	sepoliaRPCURLs []string
 	sepoliaVault   string
+	sepoliaEscrow  string
 	httpHost       string
 	httpPort       int
 	accessToken    string
@@ -104,10 +105,19 @@ func loadConfig(getenv func(string) string) (runtimeConfig, error) {
 		sepoliaVault = validated.Hex()
 	}
 
+	sepoliaEscrow := strings.TrimSpace(getenv("SEPOLIA_ESCROW_ADDRESS"))
+	if sepoliaEscrow != "" {
+		validated, err := wallet.ValidateAddress(sepoliaEscrow)
+		if err != nil {
+			return runtimeConfig{}, errors.New("SEPOLIA_ESCROW_ADDRESS 格式錯誤")
+		}
+		sepoliaEscrow = validated.Hex()
+	}
 	sepoliaRPC := cmp.Or(getenv("SEPOLIA_RPC_URL"), defaultSepoliaRPC)
 	config := runtimeConfig{
 		sepoliaRPCURLs: rpcURLs(sepoliaRPC, getenv("SEPOLIA_RPC_FALLBACK_URLS")),
 		sepoliaVault:   sepoliaVault,
+		sepoliaEscrow:  sepoliaEscrow,
 		httpHost:       host,
 		httpPort:       port,
 		accessToken:    accessToken,

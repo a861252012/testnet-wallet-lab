@@ -145,6 +145,7 @@ jobs:
         env:
           EXPECTED_REVISION: ${{ github.sha }}
           EXPECTED_VAULT_ADDRESS: ${{ vars.EXPECTED_VAULT_ADDRESS }}
+          EXPECTED_ESCROW_ADDRESS: ${{ vars.EXPECTED_ESCROW_ADDRESS }}
           WALLET_DEMO_URL: https://wallet.tedlin.fyi
         shell: bash
         run: |

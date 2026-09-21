@@ -29,3 +29,15 @@
 
 #sol-error:empty, #sol-sign-error:empty, #tron-error:empty, #tron-sign-error:empty { display: none; }
 .solana-main form label { display: block; margin: 14px 0 8px; }
+
+.escrow-tabs { display:flex; gap:.5rem; margin-bottom:1.5rem; }
+.escrow-tabs button { flex:1; }
+.escrow-steps { display:flex; flex-wrap:wrap; gap:.5rem 1.5rem; padding-left:1.3rem; font-size:.875rem; }
+.escrow-card { margin-top:1.5rem; padding-top:1.5rem; border-top:1px solid var(--border, #d6e1e2); }
+.escrow-card summary { cursor:pointer; font-weight:700; margin-bottom:1rem; }
+.escrow-card:not([open]) > summary { margin-bottom:0; }
+#escrow-status:empty { display:none; }
+#escrow-order { margin-top:1rem; padding:1rem; border:1px solid var(--border, #d6e1e2); border-radius:.75rem; }
+#escrow-order dd, #escrow-history, #escrow-contract-link { overflow-wrap:anywhere; }
+#vault-panel .escrow-tabs button[aria-selected="false"] { background:var(--surface); color:var(--muted); border:1px solid var(--border); }
+#vault-panel .escrow-tabs button[aria-selected="true"] { background:var(--accent-bg); color:var(--accent); border:1px solid var(--accent); font-weight:700; }

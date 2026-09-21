@@ -6,6 +6,7 @@
     "check": "node compile.js --check"
   },
   "devDependencies": {
+    "@openzeppelin/contracts": "5.4.0",
     "solc": "0.8.37"
   },
   "overrides": {

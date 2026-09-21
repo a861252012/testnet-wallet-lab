@@ -7,8 +7,10 @@ const { chromium } = require('playwright');
   const baseURL = process.env.WALLET_DEMO_URL;
   const revision = process.env.EXPECTED_REVISION;
   const expectedVault = process.env.EXPECTED_VAULT_ADDRESS;
+  const expectedEscrow = process.env.EXPECTED_ESCROW_ADDRESS;
   assert.ok(baseURL && revision, 'WALLET_DEMO_URL and EXPECTED_REVISION are required');
   if (expectedVault) assert.match(expectedVault, /^0x[0-9a-fA-F]{40}$/, 'EXPECTED_VAULT_ADDRESS must be an EVM address');
+  if (expectedEscrow) assert.match(expectedEscrow, /^0x[0-9a-fA-F]{40}$/, 'EXPECTED_ESCROW_ADDRESS must be an EVM address');
 
   // The VM polls releases after CI publishes; a healthy old revision is not success.
   const deadline = Date.now() + 10 * 60 * 1000;
@@ -61,6 +63,25 @@ const { chromium } = require('playwright');
     }
     console.log(`PASS: read-only EVM navigation; vault ${vault.enabled ? 'enabled' : 'disabled (no deployed contract configured)'}`);
     console.log('SCOPE: UI and configuration only; no deposit, withdrawal or public Sepolia receipt acceptance');
+
+    await page.locator('#contract-tab-escrow').click();
+    const escrowResponse = await context.request.get('/api/wallet/escrow');
+    assert.equal(escrowResponse.status(), 200);
+    const escrow = await escrowResponse.json();
+    assert.equal(typeof escrow.enabled, 'boolean');
+    if (expectedEscrow) {
+      assert.equal(escrow.enabled, true, 'expected escrow must be enabled');
+      assert.equal(escrow.contract?.toLowerCase(), expectedEscrow.toLowerCase());
+    }
+    if (escrow.enabled) {
+      await page.locator('#escrow-enabled').waitFor({ state: 'visible' });
+      assert.equal(await page.locator('#escrow-fund-preview').isEnabled(), true);
+      assert.ok((await page.locator('#escrow-contract-link a').getAttribute('href')).toLowerCase().includes(escrow.contract.toLowerCase()));
+    } else {
+      await page.waitForFunction(() => document.querySelector('#escrow-status').textContent === window.FlowI18n.t('付款託管尚未開放。'));
+      assert.equal(await page.locator('#escrow-enabled').isVisible(), false);
+    }
+    console.log(`PASS: payment escrow ${escrow.enabled ? 'enabled' : 'disabled'}; configuration and UI only, no payment submitted`);
 
     await page.locator('#app-sidebar a[href="#history-panel"]').click();
     for (const family of ['solana', 'tron']) {

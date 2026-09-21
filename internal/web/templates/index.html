@@ -72,6 +72,8 @@
 <p class="field-hint mono" id="exchange-route"></p><button class="submit-button" id="exchange-submit" type="submit">取得鏈上報價並核對</button><p class="field-error" hidden="" id="exchange-error" role="alert"></p></form>
 </section>
 <section class="panel feature-panel" data-view="vault-panel" data-view-hidden="true" id="vault-panel" tabindex="-1">
+<div class="escrow-tabs" role="tablist" aria-label="合約功能"><button id="contract-tab-vault" class="secondary" type="button" role="tab" aria-selected="true" aria-controls="vault-eth-content">ETH 存入與取回</button><button id="contract-tab-escrow" class="secondary" type="button" role="tab" aria-selected="false" aria-controls="escrow-content" tabindex="-1">付款託管</button></div>
+<div id="vault-eth-content" role="tabpanel" aria-labelledby="contract-tab-vault">
 <div class="vault-heading"><div><p class="eyebrow">ETHEREUM SEPOLIA</p><h2>ETH 存入與取回</h2></div><span class="state-badge">測試網</span></div>
 <p class="panel-description">把測試 ETH 存入智慧合約，再取回目前錢包。每一步都能在鏈上查到交易紀錄。</p>
 <p class="vault-rules">僅供測試 · 無利息 · 無鎖定期</p>
@@ -99,6 +101,39 @@
 <div class="feature-actions"><button class="secondary" id="vault-refresh" type="button">更新餘額與紀錄</button><span id="vault-contract-view"></span></div>
 <details class="advanced-info"><summary>這個功能能做什麼？</summary><p>練習透過智慧合約存入與取回 ETH，查看交易結果與餘額變化。沒有利息，也沒有鎖定期。</p><p>合約依錢包地址記帳；使用同一個錢包的人會共用這筆餘額。</p><p>請使用本頁「存入合約」，勿直接轉帳至合約地址。</p><a href="https://github.com/a861252012/testnet-wallet-lab/blob/main/docs/eth-vault.md" rel="noopener noreferrer" target="_blank">查看操作說明 ↗</a></details>
 <div hidden="" id="vault-history-section"><h3>合約操作紀錄</h3><div id="vault-history" role="status"></div></div>
+</div>
+<div id="escrow-content" role="tabpanel" aria-labelledby="contract-tab-escrow" hidden="">
+<div class="vault-heading"><div><p class="eyebrow">ETHEREUM SEPOLIA</p><h2>測試 USDC 付款託管</h2></div><span class="state-badge">測試網</span></div>
+<p>款項先由合約保管。付款人可以放款給收款人，收款人可以退款給原付款人。</p>
+<ol class="escrow-steps" aria-label="付款流程"><li>授權金額</li><li>付款至合約</li><li>放款或退款</li></ol>
+<p id="escrow-status" role="status">正在讀取付款託管狀態…</p>
+<p id="escrow-error" class="field-error" role="alert" hidden=""></p>
+<div class="feature-actions"><button id="escrow-refresh" class="secondary" type="button">更新付款狀態</button><span id="escrow-contract-link"></span></div>
+<div id="escrow-enabled" hidden="">
+<p id="escrow-balance" class="field-hint"></p>
+<p class="vault-shared">雙方都不操作，款項就會留在合約。本功能不會自動退款，也不處理交易糾紛。</p>
+{{if .Shared}}<p class="field-hint">這是共用錢包，其他人也能操作款項。請用兩個不同錢包測試付款和收款。</p>{{end}}
+<div id="escrow-order" tabindex="-1" hidden=""><h3 id="escrow-order-state"></h3><div id="escrow-order-details"></div><p id="escrow-role-hint" class="field-hint"></p><div class="feature-actions"><button id="escrow-release" type="button" hidden="">核對並放款</button><button id="escrow-refund" type="button" class="secondary" hidden="">核對並全額退款</button></div></div>
+<details id="escrow-new" class="escrow-card" open=""><summary>建立付款</summary>
+<form id="escrow-fund-form">
+<label for="escrow-reference">訂單編號</label><input id="escrow-reference" required="" maxlength="64" pattern="[A-Za-z0-9_-]{1,64}" placeholder="例如 order-001" autocomplete="off" aria-describedby="escrow-reference-hint"/>
+<p class="field-hint" id="escrow-reference-hint">限英文字母、數字、- 或 _，最多 64 字元。收款人查詢時需要編號和付款人地址。</p>
+<label for="escrow-seller">收款人地址</label><input id="escrow-seller" required="" pattern="0x[0-9a-fA-F]{40}" placeholder="0x…" autocomplete="off" spellcheck="false"/>
+<label for="escrow-amount">付款金額（測試 USDC）</label><input id="escrow-amount" required="" pattern="[0-9]+(\.[0-9]{1,6})?" inputmode="decimal" placeholder="例如 5" autocomplete="off"/>
+<p id="escrow-next-step" class="field-hint"></p>
+<button id="escrow-fund-preview" type="submit" class="submit-button">核對付款資料</button>
+<p class="field-hint">授權只設定可扣款金額，不會付款。每一步都要確認金額、手續費和密碼。</p>
+</form></details>
+<div class="escrow-card"><details id="escrow-search"><summary>查詢訂單</summary>
+<form id="escrow-lookup-form">
+<label for="escrow-lookup-buyer">原付款人地址</label><input id="escrow-lookup-buyer" required="" pattern="0x[0-9a-fA-F]{40}" autocomplete="off" spellcheck="false"/>
+<label for="escrow-lookup-reference">要查詢的訂單編號</label><input id="escrow-lookup-reference" required="" maxlength="64" pattern="[A-Za-z0-9_-]{1,64}" autocomplete="off"/>
+<button id="escrow-lookup" class="secondary" type="submit">查詢訂單</button>
+</form></details>
+</div>
+<div class="escrow-card"><h3>付款紀錄</h3><div id="escrow-history" role="status"></div></div>
+</div>
+</div>
 </section>
 <section class="panel activity-toolbar" data-view="history-panel activity-panel" data-view-hidden="true"><nav aria-label="活動檢視" class="feature-actions"><a class="secondary" href="#history-panel">交易狀態</a><a class="secondary" href="#activity-panel">收支明細</a></nav><button class="secondary" id="activity-refresh" type="button">重新整理</button><p id="activity-updated" role="status"></p><p class="field-error" hidden="" id="activity-error" role="alert"></p><details><summary>更多操作</summary><a class="secondary" download="" href="/api/wallet/activity?format=csv&amp;page=1" id="activity-csv">匯出本頁 CSV</a> <a href="#transaction-panel">查詢其他交易</a></details></section>
 <section class="panel feature-panel" data-view="activity-panel" data-view-hidden="true" id="activity-panel" tabindex="-1">

@@ -21,6 +21,7 @@ services:
       TRON_SHASTA_API_KEY: ${TRON_SHASTA_API_KEY:-}
       SOLANA_DEVNET_RPC_URL: ${SOLANA_DEVNET_RPC_URL:-https://api.devnet.solana.com}
       SEPOLIA_VAULT_ADDRESS: ${SEPOLIA_VAULT_ADDRESS:-}
+      SEPOLIA_ESCROW_ADDRESS: ${SEPOLIA_ESCROW_ADDRESS:-}
       TEST_FAUCET_CONFIG: ${TEST_FAUCET_CONFIG:-}
       WALLET_DIR: /data/wallet
       SEPOLIA_RPC_URL: ${SEPOLIA_RPC_URL:-https://ethereum-sepolia-rpc.publicnode.com}

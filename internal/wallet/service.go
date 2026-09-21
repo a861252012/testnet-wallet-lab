@@ -35,6 +35,8 @@ type Service struct {
 	historyMu     sync.Mutex
 	walletDir     string
 	vaultAddress  string
+	escrowAddress string
+	escrowToken   string
 	lockFile      *os.File
 	storageFault  atomic.Bool
 }
@@ -274,6 +276,12 @@ func (s *Service) QuoteCommand(ctx context.Context, command QuoteCommand) (*Quot
 		}
 		command.Contract = EVMAddress(s.vaultAddress)
 	}
+	if isEscrowAction(command.Action) {
+		if s.client.ChainID() != chain.SepoliaID || s.escrowAddress == "" {
+			return nil, errors.New("此環境尚未開放付款託管")
+		}
+		command.Contract, command.TokenOut = EVMAddress(s.escrowAddress), EVMAddress(s.escrowToken)
+	}
 	// Single outstanding tx constraint: block new quotes while a transaction is in flight
 	if s.journal.HasInFlightTx() {
 		return nil, ErrTxInFlight
@@ -410,6 +418,16 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 		}
 	}
 	switch quote.Action {
+	case ActionEscrowFund, ActionEscrowRelease, ActionEscrowRefund:
+		if s.client.ChainID() != chain.SepoliaID || s.escrowAddress == "" || quote.Escrow == nil || quote.Contract != common.HexToAddress(s.escrowAddress) || quote.Escrow.Token != s.escrowToken {
+			return nil, errors.New("託管設定已變更，請重新預估")
+		}
+		if err := verifyEscrow(ctx, s.client, quote.Contract, common.HexToAddress(s.escrowToken)); err != nil {
+			return nil, err
+		}
+		if err := simulateEscrow(ctx, s.client, quote.From, quote.TxTo, quote.Data); err != nil {
+			return nil, err
+		}
 	case "wrap", "unwrap", "swap":
 		if err := RecheckExchange(ctx, s.client, quote); err != nil {
 			return nil, err

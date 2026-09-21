@@ -2,6 +2,8 @@
 
 在側欄開啟「智慧合約」，就能使用「ETH 存入與取回」：把測試 ETH 存入專案的 Solidity `ETHVault` 合約，再取回目前錢包。只支援 Ethereum Sepolia，沒有利息或鎖定期，也不提供代幣、管理員代提、多簽或升級功能。
 
+付款、放款與退款使用另一個 [PaymentEscrow 合約](payment-escrow.md)，在同頁「付款託管」分頁操作；不改變本 ETHVault 的存提規則。
+
 ## 操作方式
 
 1. 選好要使用的錢包，確認網路為 Ethereum Sepolia，開啟側欄「智慧合約」。

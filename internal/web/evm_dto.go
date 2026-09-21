@@ -103,6 +103,8 @@ func newEVMTransactionResponse(transaction *chain.Transaction) *evmTransactionRe
 }
 
 type evmQuoteRequest struct {
+	OrderID     string `json:"orderId,omitempty"`
+	Buyer       string `json:"buyer,omitempty"`
 	Hash        string `json:"hash,omitempty"`
 	Action      string `json:"action"`
 	To          string `json:"to"`
@@ -124,6 +126,7 @@ func (r evmQuoteRequest) poolComparisonCommand() (wallet.PoolComparisonCommand, 
 
 func (r evmQuoteRequest) walletRequest() *wallet.QuoteRequest {
 	return &wallet.QuoteRequest{
+		OrderID: r.OrderID, Buyer: r.Buyer,
 		Hash:        r.Hash,
 		Action:      r.Action,
 		To:          r.To,
@@ -269,6 +272,7 @@ func newEVMExchangePreview(preview *wallet.ExchangePreview) *evmExchangePreview 
 }
 
 type evmQuoteResponse struct {
+	Escrow               *evmEscrowPreview   `json:"escrow,omitempty"`
 	RollupFeeETH         string              `json:"rollupFeeEth,omitempty"`
 	ID                   string              `json:"id"`
 	Action               string              `json:"action"`
@@ -295,6 +299,7 @@ func newEVMQuoteResponse(quote *wallet.QuoteResponse) *evmQuoteResponse {
 		return nil
 	}
 	return &evmQuoteResponse{
+		Escrow:       newEVMEscrowPreview(quote.Escrow),
 		RollupFeeETH: quote.RollupFeeETH, ID: quote.ID, Action: quote.Action, From: quote.From,
 		To: quote.To, Contract: quote.Contract, Symbol: quote.Symbol, Amount: quote.Amount,
 		AmountRaw: quote.AmountRaw, Nonce: quote.Nonce, GasLimit: quote.GasLimit,

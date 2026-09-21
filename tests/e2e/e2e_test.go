@@ -135,7 +135,18 @@ func startSimulatedRPC(t *testing.T, sim *simulated.Backend, mu *sync.Mutex) *ht
 					Value: val,
 					Data:  data,
 				}
-				output, err := sim.Client().CallContract(ctx, msg, nil)
+				var block *big.Int
+				if len(params) > 1 {
+					var tag rpc.BlockNumber
+					if err := json.Unmarshal(params[1], &tag); err != nil {
+						rpcErr = err
+						break
+					}
+					if tag != rpc.LatestBlockNumber {
+						block = big.NewInt(tag.Int64())
+					}
+				}
+				output, err := sim.Client().CallContract(ctx, msg, block)
 				if err != nil {
 					rpcErr = err
 				} else {
@@ -298,7 +309,7 @@ func startSimulatedRPC(t *testing.T, sim *simulated.Backend, mu *sync.Mutex) *ht
 	return server
 }
 
-func deployContract(t *testing.T, sim *simulated.Backend, transactor *bind.TransactOpts, artifactPath string) (common.Address, abi.ABI) {
+func deployContract(t *testing.T, sim *simulated.Backend, transactor *bind.TransactOpts, artifactPath string, args ...any) (common.Address, abi.ABI) {
 	t.Helper()
 	raw, err := os.ReadFile(artifactPath)
 	if err != nil {
@@ -328,7 +339,7 @@ func deployContract(t *testing.T, sim *simulated.Backend, transactor *bind.Trans
 		t.Fatalf("parse ABI: %v", err)
 	}
 
-	addr, tx, _, err := bind.DeployContract(transactor, parsedABI, common.FromHex(artifact.Bytecode), sim.Client())
+	addr, tx, _, err := bind.DeployContract(transactor, parsedABI, common.FromHex(artifact.Bytecode), sim.Client(), args...)
 	if err != nil {
 		t.Fatalf("deploy contract: %v", err)
 	}

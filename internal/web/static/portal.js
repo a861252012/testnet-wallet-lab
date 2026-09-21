@@ -65,7 +65,7 @@
     'activity-panel': '核對收付款與手續費，匯出需要的紀錄。',
     'settings-panel': '管理加密備份與錢包密碼。',
     'contacts-panel': '儲存常用收款地址，下次轉帳直接選用。',
-    'vault-panel': '用測試 ETH 體驗合約操作，從確認費用到查看鏈上結果。'
+    'vault-panel': '練習存入、取回測試 ETH，或用測試 USDC 付款。'
   };
   function navigate(focus = false) {
     let current = location.hash.slice(1) || 'overview';

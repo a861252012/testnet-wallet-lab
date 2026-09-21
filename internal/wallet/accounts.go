@@ -161,6 +161,7 @@ func NewAccountService(client *chain.Client, root *Service, id string) (*Service
 	}
 	service.catalog = root
 	service.vaultAddress = root.vaultAddress
+	service.escrowAddress, service.escrowToken = root.escrowAddress, root.escrowToken
 	service.keystore.catalogDir = root.walletDir
 	service.keystore.catalogMu = root.keystore.catalogMu
 	return service, nil

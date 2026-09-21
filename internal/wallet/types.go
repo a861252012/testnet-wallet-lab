@@ -79,6 +79,8 @@ func ParseTransactionHash(value string) (TransactionHash, error) {
 }
 
 type QuoteCommand struct {
+	OrderID     OrderReference
+	Buyer       EVMAddress
 	Hash        TransactionHash
 	Action      TransactionAction
 	To          EVMAddress
@@ -138,7 +140,27 @@ func ParseQuoteRequest(request *QuoteRequest) (QuoteCommand, error) {
 			}
 		}
 	}
+	var orderID OrderReference
+	var buyer EVMAddress
+	if isEscrowAction(action) {
+		if request.Contract != "" || request.TokenOut != "" || request.AmountRaw != "" {
+			return QuoteCommand{}, errors.New("託管合約與代幣由伺服器設定")
+		}
+		orderID, err = ParseOrderReference(request.OrderID)
+		if err != nil {
+			return QuoteCommand{}, err
+		}
+		if request.Buyer != "" {
+			buyer, err = ParseEVMAddress(request.Buyer)
+			if err != nil {
+				return QuoteCommand{}, err
+			}
+		}
+	} else if request.OrderID != "" || request.Buyer != "" {
+		return QuoteCommand{}, errors.New("此操作不接受訂單欄位")
+	}
 	return QuoteCommand{
+		OrderID: orderID, Buyer: buyer,
 		Hash: hash, Action: action, To: to, Amount: request.Amount,
 		AmountRaw: request.AmountRaw, Contract: contract, TokenOut: tokenOut,
 		SlippageBPS: request.SlippageBPS, PoolFee: request.PoolFee,
@@ -223,6 +245,9 @@ const (
 	ActionSwap          TransactionAction = "swap"
 	ActionSpeedup       TransactionAction = "speedup"
 	ActionCancel        TransactionAction = "cancel"
+	ActionEscrowFund    TransactionAction = "escrow_fund"
+	ActionEscrowRelease TransactionAction = "escrow_release"
+	ActionEscrowRefund  TransactionAction = "escrow_refund"
 	ActionVaultDeposit  TransactionAction = "vault_deposit"
 	ActionVaultWithdraw TransactionAction = "vault_withdraw"
 )
@@ -230,7 +255,7 @@ const (
 func ParseTransactionAction(value string) (TransactionAction, error) {
 	action := TransactionAction(value)
 	switch action {
-	case ActionETH, ActionTransfer, ActionApprove, ActionWrap, ActionUnwrap, ActionSwap, ActionSpeedup, ActionCancel, ActionVaultDeposit, ActionVaultWithdraw:
+	case ActionETH, ActionTransfer, ActionApprove, ActionWrap, ActionUnwrap, ActionSwap, ActionSpeedup, ActionCancel, ActionVaultDeposit, ActionVaultWithdraw, ActionEscrowFund, ActionEscrowRelease, ActionEscrowRefund:
 		return action, nil
 	default:
 		return "", fmt.Errorf("不支援的交易操作 %q", value)
@@ -294,6 +319,8 @@ type TokenInfo struct {
 }
 
 type QuoteRequest struct {
+	OrderID     string `json:"orderId,omitempty"`
+	Buyer       string `json:"buyer,omitempty"`
 	Hash        string `json:"hash,omitempty"`
 	Action      string `json:"action"`
 	To          string `json:"to"`
@@ -306,6 +333,7 @@ type QuoteRequest struct {
 }
 
 type QuoteResponse struct {
+	Escrow               *EscrowPreview   `json:"escrow,omitempty"`
 	RollupFeeETH         string           `json:"rollupFeeEth,omitempty"`
 	ID                   string           `json:"id"`
 	Action               string           `json:"action"`

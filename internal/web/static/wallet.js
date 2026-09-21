@@ -18,7 +18,7 @@
   let historySnapshot = [];
   let activityPage = 1;
   let activityLoading = false;
-  const actionLabels = {speedup:"加速原交易",cancel:"取消原交易（零額自轉）",eth:"資產轉帳",transfer:"代幣轉帳",approve:"代幣授權",wrap:"ETH → WETH 包裝",unwrap:"WETH → ETH 解包",swap:"代幣兌換",vault_deposit:'存入合約',vault_withdraw:'取回錢包'};
+  const actionLabels = {speedup:"加速原交易",cancel:"取消原交易（零額自轉）",eth:"資產轉帳",transfer:"代幣轉帳",approve:"代幣授權",wrap:"ETH → WETH 包裝",unwrap:"WETH → ETH 解包",swap:"代幣兌換",vault_deposit:'存入合約',vault_withdraw:'取回錢包',escrow_fund:'付款至合約',escrow_release:'放款給收款人',escrow_refund:'退款給付款人'};
   const stateLabels = { replaced:"同 Nonce 的另一筆交易已收錄", submitted: '已廣播，等待收錄', pending: '等待區塊收錄', broadcast_unknown: '廣播結果待確認', succeeded: '鏈上執行成功', reverted: '鏈上執行失敗', reorg_detected: '區塊變更，待確認', receipt_unavailable: '收據尚不可用' };
 
   async function walletRequest(path, body) {
@@ -82,7 +82,10 @@
     }
     if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
     await refreshTokens();
-    if (document.body.dataset.view === 'vault-panel') await refreshVault();
+    if (document.body.dataset.view === 'vault-panel') {
+      if ($('escrow-content').hidden) await refreshVault();
+      else await refreshEscrow();
+    }
     button.disabled = false;
     $('check-funding').disabled = false;
   }
@@ -374,6 +377,170 @@
     } catch (error) { showWalletError('send-error', error); }
     finally { button.disabled = false; button.textContent = '預估費用並核對'; }
   });
+  let escrowInfo;
+  let escrowOrder;
+  let escrowBusy = false;
+  let escrowQuery = 0;
+  const escrowStates = {none:'尚未付款',funded:'款項由合約保管',released:'已放款給收款人',refunded:'已退回付款人'};
+  const escrowDraftKey = 'flowledger:escrow-draft:' + networkPrefix;
+
+  function escrowUnits(value) {
+    if (!/^[0-9]+(?:\.[0-9]{1,6})?$/.test(value)) throw new Error('付款金額請輸入最多 6 位小數的正數');
+    const [whole, fraction = ''] = value.split('.');
+    const raw = BigInt(whole) * 1000000n + BigInt(fraction.padEnd(6,'0'));
+    if (raw <= 0n || raw >= (1n << 256n)) throw new Error('付款金額請輸入最多 6 位小數的正數');
+    return raw;
+  }
+  function saveEscrowDraft() {
+    try { sessionStorage.setItem(escrowDraftKey, JSON.stringify({reference:$('escrow-reference').value,seller:$('escrow-seller').value,amount:$('escrow-amount').value,buyer:$('escrow-lookup-buyer').value,lookup:$('escrow-lookup-reference').value})); } catch {}
+  }
+  try {
+    const draft = JSON.parse(sessionStorage.getItem(escrowDraftKey) || 'null');
+    if (draft) for (const [key,id] of Object.entries({reference:'escrow-reference',seller:'escrow-seller',amount:'escrow-amount',buyer:'escrow-lookup-buyer',lookup:'escrow-lookup-reference'})) {
+      if (typeof draft[key] === 'string') $(id).value = draft[key].slice(0,64);
+    }
+  } catch {}
+  function setEscrowBusy(busy) {
+    escrowBusy = busy;
+    for (const id of ['escrow-fund-preview','escrow-lookup','escrow-release','escrow-refund','escrow-refresh','escrow-reference','escrow-seller','escrow-amount','escrow-lookup-buyer','escrow-lookup-reference']) $(id).disabled = busy;
+  }
+  function renderEscrowHistory() {
+    const rows = historySnapshot.filter(tx => tx.action?.startsWith('escrow_') || tx.action === 'approve' && tx.to?.toLowerCase() === escrowInfo?.contract?.toLowerCase()).slice(0,5);
+    $('escrow-history').replaceChildren();
+    for (const tx of rows) {
+      const row = node('p');
+      row.append(node('strong',actionLabels[tx.action] || tx.action),node('span',` · ${tx.amount} USDC · `),node('span',stateLabels[tx.state] || '狀態待確認'),document.createTextNode(' '),explorer('tx',tx.hash));
+      $('escrow-history').append(row);
+    }
+    if (!rows.length) $('escrow-history').append(node('p','完成授權或付款後，交易紀錄會顯示在這裡。','muted'));
+  }
+  async function refreshEscrow() {
+    if (escrowBusy || !walletState?.exists || walletState.chainId !== 11155111) return;
+    setEscrowBusy(true);
+    escrowInfo = undefined;
+    escrowOrder = undefined;
+    $('escrow-enabled').hidden = true;
+    $('escrow-order').hidden = true;
+    $('escrow-error').hidden = true;
+    $('escrow-status').textContent = '正在更新付款託管狀態…';
+    try {
+      escrowInfo = await walletRequest('/api/wallet/escrow');
+      $('escrow-status').textContent = escrowInfo.enabled ? '' : '付款託管尚未開放。';
+      $('escrow-enabled').hidden = !escrowInfo.enabled;
+      $('escrow-contract-link').replaceChildren();
+      if (escrowInfo.enabled) {
+        $('escrow-contract-link').append(explorer('address',escrowInfo.contract));
+        $('escrow-balance').textContent = `可用餘額：${escrowInfo.balance} USDC · 已授權：${escrowInfo.allowance} USDC`;
+        if (!$('escrow-lookup-buyer').value) $('escrow-lookup-buyer').value = walletState.address;
+        renderEscrowHistory();
+      }
+    } catch (error) {
+      $('escrow-status').textContent = '暫時無法讀取付款狀態，請重試。';
+      showWalletError('escrow-error',error);
+    } finally { setEscrowBusy(false); }
+    if (escrowInfo?.enabled && $('escrow-lookup-reference').value) await lookupEscrow(false);
+  }
+  function showEscrowOrder(order, focus) {
+    escrowOrder = order;
+    $('escrow-order').hidden = false;
+    $('escrow-order-state').textContent = escrowStates[order.state] || '狀態待確認';
+    $('escrow-order-details').replaceChildren(details([['訂單編號',order.orderId],['原付款人',order.buyer]]));
+    $('escrow-release').hidden = $('escrow-refund').hidden = true;
+    if (order.state === 'none') {
+      $('escrow-role-hint').textContent = '找不到已付款的訂單，請確認付款人地址和訂單編號。';
+    } else {
+      $('escrow-new').open = false;
+      $('escrow-search').open = false;
+      $('escrow-order-details').append(details([['收款人',order.seller],['金額',`${order.amount} USDC`],['鏈上確認',order.finalized ? '已最終確認' : '已收錄，仍待最終確認']]));
+      const buyer = order.buyer.toLowerCase() === walletState.address.toLowerCase();
+      const seller = order.seller.toLowerCase() === walletState.address.toLowerCase();
+      if (order.state === 'funded') {
+        $('escrow-release').hidden = !buyer;
+        $('escrow-refund').hidden = !seller;
+        $('escrow-role-hint').textContent = buyer ? '你是付款人。確認對方已完成約定，再放款給收款人。退款要由收款人操作。' : seller ? '你是收款人。可將全額退給原付款人。要收款，請等付款人放款。' : '這個錢包只能查看。請切換到付款人或收款人的錢包。';
+      } else $('escrow-role-hint').textContent = '這筆訂單已完成，不能再放款或退款。';
+    }
+    if (focus) $('escrow-order').focus();
+  }
+  async function lookupEscrow(focus = true) {
+    if (escrowBusy || !escrowInfo?.enabled || !$('escrow-lookup-form').reportValidity()) return;
+    const generation = ++escrowQuery;
+    setEscrowBusy(true);
+    escrowOrder = undefined;
+    $('escrow-order').hidden = true;
+    $('escrow-error').hidden = true;
+    saveEscrowDraft();
+    try {
+      const order = await walletRequest('/api/wallet/escrow/order?' + new URLSearchParams({buyer:$('escrow-lookup-buyer').value.trim(),orderId:$('escrow-lookup-reference').value.trim()}));
+      if (generation === escrowQuery) showEscrowOrder(order,focus);
+    } catch (error) { if (generation === escrowQuery) showWalletError('escrow-error',error); }
+    finally { setEscrowBusy(false); }
+  }
+  async function quoteEscrow(action) {
+    if (escrowBusy || sending || !escrowInfo?.enabled) return;
+    if (action === 'escrow_fund' && !$('escrow-fund-form').reportValidity()) return;
+    setEscrowBusy(true);
+    $('escrow-error').hidden = true;
+    try {
+      let requestBody;
+      let approval;
+      if (action === 'escrow_fund') {
+        const seller = $('escrow-seller').value.trim();
+        if ([walletState.address,escrowInfo.contract].some(address=>address.toLowerCase()===seller.toLowerCase()) || /^0x0{40}$/i.test(seller)) throw new Error('收款人須為另一個錢包地址');
+        const amount = $('escrow-amount').value.trim();
+        const raw = escrowUnits(amount);
+        // Refresh allowances before deciding whether to approve; never infer payment from approval.
+        const current = await walletRequest('/api/wallet/escrow');
+        if (!current.enabled) throw new Error('付款託管尚未開放。');
+        escrowInfo = current;
+        const allowance = current.allowance === '0' ? 0n : escrowUnits(current.allowance);
+        const balance = current.balance === '0' ? 0n : escrowUnits(current.balance);
+        if (balance < raw) throw new Error('測試 USDC 餘額不足，請先領取測試幣。');
+        // A duplicate reference is rejected even before an unnecessary approval.
+        const existing = await walletRequest('/api/wallet/escrow/order?' + new URLSearchParams({buyer:walletState.address,orderId:$('escrow-reference').value.trim()}));
+        if (existing.state !== 'none') throw new Error('此訂單編號已付款，請查詢原訂單。');
+        if (allowance < raw) {
+          const revoke = allowance > 0n;
+          requestBody = {action:'approve',to:current.contract,contract:current.token,amount:revoke?'0':amount,amountRaw:revoke?'0':String(raw)};
+          approval = {orderId:$('escrow-reference').value.trim(),buyer:walletState.address,revoke};
+        } else requestBody = {action,to:$('escrow-seller').value.trim(),amount,orderId:$('escrow-reference').value.trim(),buyer:walletState.address};
+        saveEscrowDraft();
+      } else {
+        if (!escrowOrder || escrowOrder.state !== 'funded') throw new Error('請先查詢款項仍由合約保管的訂單。');
+        requestBody = {action,to:action==='escrow_release'?escrowOrder.seller:escrowOrder.buyer,amount:'',orderId:escrowOrder.orderId,buyer:escrowOrder.buyer};
+      }
+      const data = await walletRequest('/api/wallet/quote',requestBody);
+      if (approval) data.escrowApproval = approval;
+      openConfirmation(data);
+    } catch (error) { showWalletError('escrow-error',error); }
+    finally { setEscrowBusy(false); }
+  }
+  function selectContractTab(escrow) {
+    $('vault-eth-content').hidden = escrow;
+    $('escrow-content').hidden = !escrow;
+    for (const [id,selected] of [['contract-tab-vault',!escrow],['contract-tab-escrow',escrow]]) {
+      $(id).setAttribute('aria-selected',String(selected));
+      $(id).tabIndex = selected ? 0 : -1;
+    }
+    if (escrow) refreshEscrow();
+  }
+  for (const id of ['contract-tab-vault','contract-tab-escrow']) {
+    $(id).addEventListener('click',()=>selectContractTab(id==='contract-tab-escrow'));
+    $(id).addEventListener('keydown',event=>{
+      if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+      event.preventDefault();
+      const escrow = event.key === 'End' || event.key !== 'Home' && id === 'contract-tab-vault';
+      selectContractTab(escrow);$(escrow?'contract-tab-escrow':'contract-tab-vault').focus();
+    });
+  }
+  $('escrow-fund-form').addEventListener('submit',event=>{event.preventDefault();quoteEscrow('escrow_fund');});
+  $('escrow-fund-form').addEventListener('input',saveEscrowDraft);
+  $('escrow-lookup-form').addEventListener('submit',event=>{event.preventDefault();lookupEscrow();});
+  $('escrow-lookup-form').addEventListener('input',()=>{escrowQuery++;escrowOrder=undefined;$('escrow-order').hidden=true;saveEscrowDraft();});
+  $('escrow-release').addEventListener('click',()=>quoteEscrow('escrow_release'));
+  $('escrow-refund').addEventListener('click',()=>quoteEscrow('escrow_refund'));
+  $('escrow-refresh').addEventListener('click',refreshWallet);
+
   async function refreshVault() {
     if (vaultBusy || !walletState?.exists || walletState.chainId !== 11155111) return;
     vaultBusy = true;
@@ -447,7 +614,7 @@
   });
   $('vault-form').addEventListener('submit', event => { event.preventDefault(); quoteVault(); });
   $('vault-refresh').addEventListener('click', refreshWallet);
-  window.addEventListener('wallet-view', event => { if (event.detail === 'vault-panel') refreshVault(); });
+  window.addEventListener('wallet-view', event => { if (event.detail === 'vault-panel') { if ($('escrow-content').hidden) refreshVault(); else refreshEscrow(); } });
 
   function openConfirmation(data) {
     if ($('send-confirmation').open || sending) return;
@@ -455,7 +622,15 @@
     $('confirm-title').textContent = data.action === 'vault_deposit' ? '確認存入合約' : data.action === 'vault_withdraw' ? '確認取回錢包' : '確認這筆交易';
     const entries = [['操作', actionLabels[data.action] || '資產操作'], ['網路', networkName], ['發送地址', data.from], [data.action === 'approve' ? '被授權地址' : '收款地址', data.to], ['數量', `${data.amount} ${data.symbol}`], ['執行費用上限', `${data.maxFeeEth} ${nativeSymbol}`], [data.rollupFeeEth ? '預估總扣款（含費用預留）' : '最多扣除 ' + nativeSymbol, `${data.totalEth} ${nativeSymbol}`], ['報價有效至', time(data.expiresAt)]];
     if (data.rollupFeeEth) entries.push(['L1／營運費預留', `${data.rollupFeeEth} ETH（估算含緩衝；上鏈費用仍可能變動）`]);
-    if (data.action === 'vault_deposit') entries.splice(2, 2, ['扣款錢包', data.from], ['智慧合約', data.contract]);
+    if (data.escrow) {
+      $('confirm-title').textContent = data.action === 'escrow_fund' ? '確認付款至合約' : data.action === 'escrow_release' ? '確認放款給收款人' : '確認全額退款';
+      entries.splice(2,2,['付款人',data.escrow.buyer],['收款人',data.escrow.seller]);
+      entries.push(['訂單編號',data.escrow.orderId],['託管合約',data.contract],['代幣合約',data.escrow.token],['資金去向',data.action==='escrow_fund'?'目前錢包 → 託管合約':data.action==='escrow_release'?'託管合約 → 收款人':'託管合約 → 原付款人']);
+      entries.push(['操作說明',data.action==='escrow_fund'?'款項會留在合約，等你放款給收款人，或由收款人退款。':'交易成功後會轉出全部款項，不能再放款或退款。']);
+    } else if (data.escrowApproval) {
+      $('confirm-title').textContent = data.escrowApproval.revoke ? '先撤銷舊授權' : '確認本次 USDC 授權';
+      entries.push(['操作說明',data.escrowApproval.revoke?'先取消舊的授權，再授權這次要付的金額。':'這一步只授權，不會付款。授權成功後，再按「核對付款資料」。']);
+    } else if (data.action === 'vault_deposit') entries.splice(2, 2, ['扣款錢包', data.from], ['智慧合約', data.contract]);
     else if (data.action === 'vault_withdraw') entries.splice(2, 2, ['智慧合約', data.contract], ['收款錢包', data.to]);
     else if (data.contract) entries.splice(4, 0, ['代幣合約', data.contract]);
     if (data.action === 'vault_withdraw') entries.push(['取回說明', '取回的 ETH 會回到目前錢包；錢包另付 Gas，最多扣除欄位僅為費用上限。']);
@@ -494,9 +669,18 @@
       const data = await walletRequest('/api/wallet/send', { quoteId: quote.id, password: $('send-password').value });
       if (flow && submittedQuote.flowID === flow.id) { flow.pending = {quoteID:submittedQuote.id,hash:data.hash,kind:submittedQuote.flowKind}; saveFlow(); }
       $('send-confirmation').close();
-      showSent(data);
+      if (submittedQuote.escrow || submittedQuote.escrowApproval) $('send-feedback').hidden = true;
+      else showSent(data);
+      if (submittedQuote.escrow || submittedQuote.escrowApproval) {
+        const payment = submittedQuote.escrow || submittedQuote.escrowApproval;
+        $('escrow-lookup-buyer').value = payment.buyer;
+        $('escrow-lookup-reference').value = payment.orderId;
+        $('escrow-next-step').textContent = submittedQuote.escrowApproval ? '授權已送出。等紀錄顯示成功，再按「核對付款資料」付款。' : '交易已送出，請查看訂單狀態和付款紀錄。';
+        saveEscrowDraft();
+      }
       await refreshWallet();
       await refreshActivity();
+      if (submittedQuote.escrow && !$('escrow-order').hidden) $('escrow-order').focus();
       if ((submittedQuote.action || '').startsWith('vault_') && !$('vault-history-section').hidden) {
         $('vault-history-section').tabIndex = -1;
         $('vault-history-section').focus();
@@ -720,7 +904,7 @@
     if(flow!==current)throw new Error('引導已變更，請重新報價。');
     data.flowID=current.id;data.flowKind=kind;openConfirmation(data);
   }
-  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => (tx.action || '').startsWith('vault_') && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
+  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => (tx.action || '').match(/^(vault_|escrow_)/) && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
 
   function displayAsset(raw, asset) {
     const config = walletState.exchange;

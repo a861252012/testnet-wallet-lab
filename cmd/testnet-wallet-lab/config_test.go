@@ -177,3 +177,21 @@ func TestSharedDemoRequiresExplicitHTTPSOrigin(t *testing.T) {
 		t.Fatalf("explicit shared mode rejected: %v", err)
 	}
 }
+
+func TestEscrowAddressConfig(t *testing.T) {
+	for _, value := range []string{"", "0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "not-an-address"} {
+		config, err := loadConfig(func(key string) string {
+			if key == "SEPOLIA_ESCROW_ADDRESS" {
+				return value
+			}
+			return ""
+		})
+		valid := value == "" || value == "0x1111111111111111111111111111111111111111"
+		if (err == nil) != valid {
+			t.Fatalf("value=%s err=%v", value, err)
+		}
+		if valid && config.sepoliaEscrow != value {
+			t.Fatal("configuration not preserved")
+		}
+	}
+}
