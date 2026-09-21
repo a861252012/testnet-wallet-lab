@@ -360,6 +360,11 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 			case errors.Is(err, chain.ErrTimeout):
 				status = http.StatusGatewayTimeout
 			}
+			var rejected *wallet.SendRejectedError
+			if errors.As(err, &rejected) {
+				respondWallet(w, status, map[string]string{"error": err.Error(), "code": "send_rejected"}, nil)
+				return
+			}
 			respondWallet(w, status, nil, err)
 			return
 		}

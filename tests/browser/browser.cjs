@@ -16,6 +16,8 @@ let accountFixtures = [{id:'',name:'主要錢包',address,archived:false}];
 let accountWrites = 0, accountFailure = false;
 let walletCSRF='fixture', solCSRF='fixture', tronCSRF='fixture';
 let enforceTokenLimit=false, activeTokenQueries=0, tokenLimitHits=0;
+let rejectSendStatus = 0, scanTokens = [], syncRequests = [], syncFailureBatch = 0;
+const transactionStatuses = new Map();
 let exists = true, balanceFailure = false, loseSendResponse = false, history = [], sent = [], quotes = new Map(), allowances = new Map();
 let tronExists=false,tronHistory=[],tronSends=0;const tronAddress='TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH';
 let solExists = false, solHistory = [], solSends = 0;
@@ -81,7 +83,13 @@ const server = http.createServer(async (req,res)=>{
   if(pathname==='/api/balance'){if(balanceFailure){res.statusCode=502;return respond({error:'fixture RPC unavailable'});}return respond({address,eth:String(Number(walletWei)/1e18),wei:String(walletWei),block:'100',checkedAt:new Date().toISOString()});}
   if(pathname==='/api/wallet/history')return respond({transactions:history});
   if(pathname==='/api/wallet/activity')return respond({page:1,pages:1,totalTransactions:0,transactions:[],totals:[]});
-  if(pathname==='/api/wallet/scan')return respond({enabled:false,start:90,next:91,finalized:100,tokens:[]});
+  if(pathname==='/api/wallet/scan')return respond({enabled:false,start:90,next:91,finalized:100,tokens:scanTokens});
+  if(pathname==='/api/wallet/activity/sync'){
+   syncRequests.push(body);
+   if(body.contracts.length>20){res.statusCode=400;return respond({error:'每次同步最多 20 個代幣合約'});}
+   if(syncFailureBatch===syncRequests.length){res.statusCode=502;return respond({error:'fixture batch unavailable'});}
+   return respond({from:body.from||81,to:100,added:1});
+  }
   if(pathname==='/api/wallet/token'||pathname==='/api/watch/token'){
    if(pathname==='/api/wallet/token'&&req.headers['x-wallet-csrf']!==walletCSRF){res.statusCode=403;return respond({error:'fixture stale CSRF token'});}
    if(enforceTokenLimit){
@@ -104,12 +112,14 @@ const server = http.createServer(async (req,res)=>{
    return respond({...body,id,from:address,symbol:body.action==='wrap'?'ETH':'USDC',amountRaw:'1',maxFeeEth:'0.00001',totalEth:body.amount,expiresAt:new Date(Date.now()+120000).toISOString(),nonce:'0',data:'0x',gasLimit:'21000',maxFeePerGas:'1',maxPriorityFeePerGas:'1'});
   }
   if(pathname==='/api/wallet/send'){
+   if(rejectSendStatus){res.statusCode=rejectSendStatus;return respond({error:'fixture rejected before signing',code:'send_rejected'});}
    const q=quotes.get(body.quoteId);assert.ok(q);sent.push(q.action);
    if(q.action==='vault_deposit')vaultDeposit+=1000000000000000n;
    if(q.action==='vault_withdraw')vaultDeposit-=1000000000000000n;
    if(q.action==='approve')allowances.set(q.contract,BigInt(Math.round(Number(q.amount)*10**(q.contract===usdc?6:18))).toString());
    const tx={...q,quoteId:body.quoteId,hash:'0x'+String(sent.length).padStart(64,'0'),state:'succeeded',createdAt:new Date().toISOString(),symbol:'ETH',confirmations:'1'};history.push(tx);if(loseSendResponse){loseSendResponse=false;res.statusCode=502;return respond({error:'fixture proxy lost upstream response after broadcast'});}return respond(tx);
   }
+  if(pathname.startsWith('/api/transactions/') && transactionStatuses.has(pathname.split('/').pop()))return respond(transactionStatuses.get(pathname.split('/').pop()));
   if(pathname.startsWith('/api/transactions/'))return respond({hash:pathname.split('/').pop(),state:'succeeded',block:'100',blockHash:'0x'+'1'.repeat(64),finalized:true,confirmations:'2',feeEth:'0.000005',checkedAt:new Date().toISOString()});
   if(pathname==='/api/watch/activity')return respond({state:'succeeded',hash:url.searchParams.get('hash'),movements:[{kind:'receive',asset:weth,raw:'1000000000000',evidence:'fixture Transfer log'}]});
   if(pathname==='/api/diagnostics')return respond({chainId,network:{block:'100'},rpc:{requests:20,transportFailures:1,failovers:1,activeEndpoint:2,endpointCount:2,lastRequestMs:5}});
@@ -414,6 +424,68 @@ const server = http.createServer(async (req,res)=>{
   await page.locator('#exchange-submit').click();await page.locator('#send-confirmation').waitFor({state:'visible'});await page.locator('#send-password').fill('fixture-password-only');await page.locator('#confirm-send-button').click();await page.locator('#confirm-error').waitFor({state:'visible'});
   await page.reload();await page.waitForFunction(()=>document.querySelector('#exchange-workflow').textContent.includes('查核授權並兌換'));
   assert.equal(sent.filter(action=>action==='wrap').length,2,'lost response repeated wrap');
+  // Rejected sends may restart the step; ambiguous sends above retain the original quote.
+  for (const status of [401, 400]) {
+    await view('exchange-panel'); await page.locator('#flow-stop').click();
+    await page.locator('#exchange-action').selectOption('eth-usdc');
+    await page.locator('#exchange-amount').fill('0.000001');
+    const sentBefore = sent.length;
+    rejectSendStatus = status;
+    await page.locator('#exchange-submit').click();
+    await page.locator('#send-password').fill('incorrect-password');
+    await page.locator('#confirm-send-button').click();
+    await page.locator('#confirm-error').waitFor({state:'visible'});
+    await page.locator('#cancel-send').click();
+    assert.equal(sent.length, sentBefore, 'rejected request never broadcasts');
+    await page.reload(); await view('exchange-panel');
+    await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
+    await page.locator('#exchange-submit').click();
+    await page.locator('#send-confirmation').waitFor({state:'visible'});
+    await page.locator('#cancel-send').click();
+    rejectSendStatus = 0;
+  }
+  const originalHash = '0x'+'a'.repeat(64), replacementHash = '0x'+'b'.repeat(64);
+  for (const action of ['speedup', 'cancel', 'speedup_cancel', 'unrelated']) {
+    const original = {hash:originalHash,quoteId:'replacement-original',state:'replaced',replacedBy:replacementHash,action:'wrap',to:address,amount:'0.000001',symbol:'ETH'};
+    const cancellation = action === 'cancel' || action === 'speedup_cancel';
+    const replacement = {...original,hash:replacementHash,quoteId:'replacement',state:'succeeded',replacedBy:undefined,
+      action:action==='speedup_cancel'?'speedup':action,amount:cancellation?'0':original.amount};
+    history = [{...original,state:'pending',replacedBy:undefined}];
+    transactionStatuses.set(originalHash,{hash:originalHash,state:'pending'});
+    transactionStatuses.set(replacementHash,{hash:replacementHash,state:'succeeded'});
+    await page.evaluate(({originalHash})=>sessionStorage.setItem('flowledger:exchange-flow:',JSON.stringify({id:'replacement-flow',direction:'eth-usdc',amount:'0.000001',phase:'wrap',pending:{quoteID:'replacement-original',hash:originalHash,kind:'wrap'}})),{originalHash});
+    await page.reload();
+    await page.waitForFunction(()=>!document.querySelector('#wallet-dashboard').hidden&&!document.querySelector('#refresh-wallet').disabled);
+    history = [original,replacement];
+    await view('exchange-panel');
+    await page.locator('#exchange-submit').click();
+    await page.waitForFunction(()=>!document.querySelector('#exchange-submit').disabled);
+    const current = await page.evaluate(()=>JSON.parse(sessionStorage.getItem('flowledger:exchange-flow:')));
+    assert.equal(current.phase,action==='speedup'?'swap':'wrap',action+' follows only the original intent');
+    assert.equal(Boolean(current.pending),action==='unrelated',action+' preserves uncertainty');
+  }
+  transactionStatuses.clear(); history=[];
+  await page.evaluate(()=>{sessionStorage.removeItem('flowledger:exchange-flow:');localStorage.removeItem('flowledger:tokens:');});
+  scanTokens = Array.from({length:20},(_,i)=>'0x6'+String(i+1).padStart(39,'0'));
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelectorAll('#send-asset option').length>=23);
+  await view('activity-panel');
+  // The developer controls are hidden in the normal UI, but their submit handler remains callable.
+  await page.evaluate(()=>document.querySelector('#activity-from').value='');
+  syncRequests=[]; syncFailureBatch=2;
+  await page.evaluate(()=>document.querySelector('#activity-sync-form').requestSubmit());
+  await page.waitForFunction(()=>!document.querySelector('#activity-sync-form button').disabled);
+  assert.equal(syncRequests.length,2);
+  assert.deepEqual(syncRequests.map(body=>body.from),[0,81]);
+  assert.equal(await page.locator('#activity-from').inputValue(),'81','failed batch must retain the resolved start instead of moving the default window');
+  syncRequests=[]; syncFailureBatch=0;
+  await page.evaluate(()=>document.querySelector('#activity-sync-form').requestSubmit());
+  await page.waitForFunction(()=>document.querySelector('#activity-from').value==='101');
+  assert.deepEqual(syncRequests.map(body=>body.contracts.length),[20,2]);
+  assert.deepEqual(syncRequests.map(body=>body.from),[81,81]);
+  assert.equal(new Set(syncRequests.flatMap(body=>body.contracts)).size,22);
+  scanTokens=[];
+  console.log('PASS: explicit send rejection recovery, replacement intent/cancellation checks, and complete 22-token batched sync with failure cursor retention.');
   exists=false;await page.reload();await page.locator('#wallet-setup').waitFor({state:'visible'});await view('watch-panel');assert.equal(await page.locator('#watch-panel').isVisible(),true);
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile overflow');
   await page.goto(base+'/solana/');await page.locator('#sol-setup').waitFor({state:'visible'});

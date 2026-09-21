@@ -30,7 +30,12 @@
     }
     const response = await fetch(networkPrefix + path, options);
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || '操作失敗，請稍後重試。');
+    if (!response.ok) {
+      const error = new Error(data.error || '操作失敗，請稍後重試。');
+      error.status = response.status;
+      error.code = data.code;
+      throw error;
+    }
     return data;
   }
 
@@ -75,8 +80,8 @@
       $('wallet-history').replaceChildren(node('p', '無法更新紀錄，請稍後再試。', 'error'));
       showWalletError('wallet-error', results[1].reason);
     }
+    if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
     await refreshTokens();
-    if (flow?.pending) await reconcileFlow();
     if (document.body.dataset.view === 'vault-panel') await refreshVault();
     button.disabled = false;
     $('check-funding').disabled = false;
@@ -483,8 +488,8 @@
     $('cancel-send').disabled = true;
     $('confirm-send-button').textContent = '正在簽署與廣播…';
     $('confirm-error').hidden = true;
+    const submittedQuote = quote;
     try {
-      const submittedQuote = quote;
       if(flow && submittedQuote.flowID===flow.id){flow.pending={quoteID:submittedQuote.id,hash:'',kind:submittedQuote.flowKind};saveFlow();}
       const data = await walletRequest('/api/wallet/send', { quoteId: quote.id, password: $('send-password').value });
       if (flow && submittedQuote.flowID === flow.id) { flow.pending = {quoteID:submittedQuote.id,hash:data.hash,kind:submittedQuote.flowKind}; saveFlow(); }
@@ -496,7 +501,13 @@
         $('vault-history-section').tabIndex = -1;
         $('vault-history-section').focus();
       }
-    } catch (error) { showWalletError('confirm-error', error); }
+    } catch (error) {
+      if (error.code === 'send_rejected' && flow && flow.id === submittedQuote.flowID && flow.pending?.quoteID === submittedQuote.id) {
+        flow.pending = undefined;
+        saveFlow();
+      }
+      showWalletError('confirm-error', error);
+    }
     finally {
       $('send-password').value = '';
       sending = false;
@@ -631,20 +642,45 @@
     $('exchange-submit').textContent=flow?.pending?'更新進度':active?'繼續下一步並核對': '取得鏈上報價並核對';
   }
   $('flow-stop').addEventListener('click',()=>{if(!sending&&!$('send-confirmation').open){flow=undefined;saveFlow();}});
-  async function reconcileFlow() {
+  async function reconcileFlow(historyFresh = false) {
     if(!flow?.pending)return;
     const current=flow,pending=current.pending;
     try {
+      if (!historyFresh) {
+        const history = await walletRequest('/api/wallet/history');
+        if (flow !== current || current.pending !== pending) return;
+        renderHistory(history.transactions);
+      }
       if(!pending.hash){const known=historySnapshot.find(tx=>tx.quoteId===pending.quoteID);if(!known){renderFlow('尚未找到原報價的交易紀錄。請更新進度，或在原確認視窗重試同一筆報價。');return;}pending.hash=known.hash;saveFlow();}
-      const tx=await request('/api/transactions/'+encodeURIComponent(pending.hash));
+      const original = historySnapshot.find(tx => tx.hash === pending.hash);
+      let effectiveHash = pending.hash;
+      let cancelled = false;
+      if (original?.replacedBy) {
+        const replacement = historySnapshot.find(tx => tx.hash === original.replacedBy);
+        if (!replacement) { renderFlow('正在等待替代交易紀錄，請稍後更新。'); return; }
+        cancelled = replacement.action === 'cancel' ||
+          (replacement.action === 'speedup' && replacement.amount === '0' && replacement.to?.toLowerCase() === walletState.address.toLowerCase());
+        if (!cancelled && (replacement.action !== 'speedup' ||
+            ['to', 'amount', 'symbol'].some(key => replacement[key] !== original[key]))) {
+          throw new Error('替代交易與原步驟內容不同，請核對交易紀錄。');
+        }
+        effectiveHash = replacement.hash;
+      }
+      const tx=await request('/api/transactions/'+encodeURIComponent(effectiveHash));
       if(flow!==current || current.pending!==pending)return;
       if(tx.state==='reverted'){current.pending=undefined;saveFlow();renderFlow('此步驟執行失敗，已消耗測試 gas。可結束引導或重新預估。');return;}
       if(tx.state!=='succeeded'){renderFlow();return;}
+      if (cancelled) {
+        current.pending = undefined;
+        saveFlow();
+        renderFlow('原步驟已取消，可結束引導或重新預估。');
+        return;
+      }
       if(pending.kind==='wrap')current.phase='swap';
       if(pending.kind==='swap'){
         if(current.direction==='eth-usdc')current.phase='done';
         else {
-          const activity=await request('/api/watch/activity?'+new URLSearchParams({address:walletState.address,hash:pending.hash}));
+          const activity=await request('/api/watch/activity?'+new URLSearchParams({address:walletState.address,hash:effectiveHash}));
           if(activity.state!=='succeeded')throw new Error('尚未取得可驗證的兌換收支。');
           const raw=activity.movements.filter(m=>m.kind==='receive'&&m.asset.toLowerCase()===walletState.exchange.weth.toLowerCase()).reduce((sum,m)=>sum+BigInt(m.raw),0n);
           if(raw<=0n)throw new Error('未找到本次收到的 WETH，請核對收據後手動解包。');
@@ -775,7 +811,16 @@
       const raw = $('activity-from').value.trim();
       const from = raw ? Number(raw) : 0;
       if (!Number.isSafeInteger(from) || from < 0) throw new Error('請輸入有效的區塊號碼。');
-      const result = await walletRequest('/api/wallet/activity/sync',{from,contracts:[...tokens.keys()]});
+      const contracts = [...tokens.keys()];
+      let result;
+      for (let offset = 0; offset < Math.max(1, contracts.length); offset += 20) {
+        const batch = await walletRequest('/api/wallet/activity/sync', {
+          from: result ? result.from : from,
+          contracts: contracts.slice(offset, offset + 20),
+        });
+        if (!result && from === 0) $('activity-from').value = String(batch.from);
+        result = result ? {...result, to: Math.min(result.to, batch.to), added: result.added + batch.added} : batch;
+      }
       $('activity-feedback').textContent = `已同步區塊 ${result.from}–${result.to}，新增 ${result.added} 筆。可保留下一個起始區塊繼續同步，或清空改查最近區塊。`;
       $('activity-from').value = String(result.to + 1);
       activityPage = 1; await refreshActivity();

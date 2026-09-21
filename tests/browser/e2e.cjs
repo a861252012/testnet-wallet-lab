@@ -73,6 +73,17 @@ async function runBrowserE2E(baseUrl, password, vaultContract) {
     assert.equal(await page.locator('#confirm-title').textContent(), '確認存入合約');
     assert.ok(quoteText.toLowerCase().includes(vaultContract.toLowerCase()));
 
+    // A rejected password must not sign, close the quote, or break the non-exchange UI.
+    await page.locator('#send-password').fill('incorrect-fixture-password');
+    const [rejected] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/wallet/send'),
+      page.locator('#confirm-send-button').click(),
+    ]);
+    assert.equal(rejected.status(), 401);
+    assert.equal((await rejected.json()).code, 'send_rejected');
+    await page.locator('#confirm-error').waitFor({state: 'visible'});
+    assert.equal(await page.locator('#send-confirmation').isVisible(), true);
+
     // Fill password and sign & send on Go backend
     await page.locator('#send-password').fill(password);
     const depositHash = await confirmSend('vault_deposit', '0.05');

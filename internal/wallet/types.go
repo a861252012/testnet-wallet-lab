@@ -33,6 +33,13 @@ var (
 	ErrTooManyScryptRequests        = errors.New("系統密碼運算繁忙，請稍後重試")
 )
 
+// SendRejectedError means this quote has no durable transaction and was not broadcast.
+// It preserves the cause for HTTP status mapping and existing callers.
+type SendRejectedError struct{ Err error }
+
+func (e *SendRejectedError) Error() string { return e.Err.Error() }
+func (e *SendRejectedError) Unwrap() error { return e.Err }
+
 type QuoteID string
 
 var opaqueIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)

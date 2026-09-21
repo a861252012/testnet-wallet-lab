@@ -303,7 +303,7 @@ func (s *Service) QuoteCommand(ctx context.Context, command QuoteCommand) (*Quot
 	return bound.ToResponse(), nil
 }
 
-func (s *Service) Send(ctx context.Context, quoteID, password string) (*SendResponse, error) {
+func (s *Service) Send(ctx context.Context, quoteID, password string) (result *SendResponse, err error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 
@@ -314,6 +314,15 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (*SendResp
 	if existing := s.journal.FindByQuoteID(quoteID); existing != nil {
 		return sendResponseFromRecord(existing, existing.State), nil
 	}
+
+	// Only failures before durable preparation are safe for a caller to abandon.
+	// Storage faults and retries of an existing quote are handled above.
+	prepared := false
+	defer func() {
+		if err != nil && !prepared {
+			err = &SendRejectedError{Err: err}
+		}
+	}()
 
 	quote, err := s.quotes.Get(quoteID)
 	if err != nil {
@@ -501,6 +510,7 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (*SendResp
 
 	// PREPARE / SIGN / BROADCAST:
 	// Must persist atomically before any RPC broadcast! No send if persistence fails!
+	prepared = true // A persistence failure may have already written the record.
 	baseVersion, err := s.journal.AppendAtomic(record)
 	if err != nil {
 		if !errors.Is(err, ErrJournalFull) {

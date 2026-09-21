@@ -141,9 +141,14 @@ func run() error {
 		startMaintenance(service)
 	}
 	var accountsMu sync.Mutex
-	accountHandlers := map[string]http.Handler{}
+	type accountWorkspace struct {
+		handler  http.Handler
+		services []*wallet.Service
+	}
+	accountWorkspaces := map[string]accountWorkspace{}
 	var accountServices []*wallet.Service
 	shuttingDown := false
+	errShuttingDown := errors.New("服務正在停止")
 	defer func() {
 		accountsMu.Lock()
 		shuttingDown = true
@@ -155,6 +160,55 @@ func run() error {
 			service.Close()
 		}
 	}()
+	// Startup, faucet access and HTTP requests share one service per account.
+	loadAccount := func(id string) (accountWorkspace, error) {
+		accountsMu.Lock()
+		defer accountsMu.Unlock()
+		if shuttingDown {
+			return accountWorkspace{}, errShuttingDown
+		}
+		if workspace, ok := accountWorkspaces[id]; ok {
+			return workspace, nil
+		}
+		primary, err := wallet.NewAccountService(client, walletService, id)
+		if err != nil {
+			return accountWorkspace{}, err
+		}
+		first, err := web.New(client, primary)
+		if err != nil {
+			primary.Close()
+			return accountWorkspace{}, err
+		}
+		mux, children, err := buildNetworks(primary, filepath.Join(config.walletDir, "accounts", id), first)
+		if err != nil {
+			primary.Close()
+			return accountWorkspace{}, err
+		}
+		workspace := accountWorkspace{
+			handler:  http.StripPrefix("/accounts/"+id, mux),
+			services: append([]*wallet.Service{primary}, children...),
+		}
+		accountWorkspaces[id] = workspace
+		accountServices = append(accountServices, workspace.services...)
+		for _, service := range workspace.services {
+			startMaintenance(service)
+		}
+		return workspace, nil
+	}
+	accounts, err := walletService.Accounts()
+	if err != nil {
+		return err
+	}
+	for _, account := range accounts {
+		if account.ID == "" {
+			continue
+		}
+		// Archiving only hides the account; its pending transactions still need tracking.
+		if _, err := loadAccount(account.ID); err != nil {
+			return fmt.Errorf("載入帳戶 %s: %w", account.ID, err)
+		}
+	}
+
 	solWallet, err := wallet.NewSolanaService(config.solanaRPC, filepath.Join(config.walletDir, "solana-devnet"), 0)
 	if err != nil {
 		return err
@@ -179,21 +233,10 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		primary, err := wallet.NewAccountService(client, walletService, faucetConfig.AccountID)
+		workspace, err := loadAccount(faucetConfig.AccountID)
 		if err != nil {
 			return err
 		}
-		accountServices = append(accountServices, primary)
-		first, err := web.New(client, primary)
-		if err != nil {
-			return err
-		}
-		accountMux, children, err := buildNetworks(primary, filepath.Join(config.walletDir, "accounts", faucetConfig.AccountID), first)
-		if err != nil {
-			return err
-		}
-		accountServices = append(accountServices, children...)
-		accountHandlers[faucetConfig.AccountID] = http.StripPrefix("/accounts/"+faucetConfig.AccountID, accountMux)
 		if faucetConfig.TronDir != "" && faucetConfig.TronPassword != "" {
 			source, err := wallet.NewTronService(config.tronRPC, config.tronAPIKey, faucetConfig.TronDir, 0)
 			if err != nil {
@@ -203,13 +246,12 @@ func run() error {
 			faucet.TronSource, faucet.TronRecipient, faucet.TronPassword = source, tronWallet, faucetConfig.TronPassword
 		}
 		faucet.Password = faucetConfig.Password
-		for _, service := range append([]*wallet.Service{primary}, children...) {
+		for _, service := range workspace.services {
 			status, err := service.Status()
 			if err != nil {
 				return err
 			}
 			faucet.Sources[status.ChainID] = service
-			startMaintenance(service)
 		}
 	}
 	faucetHandler := web.NewFaucet(faucet, solWallet, walletService.CSRFToken())
@@ -245,47 +287,16 @@ func run() error {
 			http.NotFound(w, r)
 			return
 		}
-		id := pieces[0]
-		accountsMu.Lock()
-		if shuttingDown {
-			accountsMu.Unlock()
-			http.Error(w, "服務正在停止", 503)
+		account, err := loadAccount(pieces[0])
+		if err != nil {
+			if errors.Is(err, errShuttingDown) {
+				http.Error(w, err.Error(), http.StatusServiceUnavailable)
+				return
+			}
+			http.NotFound(w, r)
 			return
 		}
-		accountHandler := accountHandlers[id]
-		if accountHandler == nil {
-			primary, err := wallet.NewAccountService(client, walletService, id)
-			if err != nil {
-				accountsMu.Unlock()
-				http.NotFound(w, r)
-				return
-			}
-			first, err := web.New(client, primary)
-			if err != nil {
-				primary.Close()
-				accountsMu.Unlock()
-				http.Error(w, "帳戶載入失敗", 500)
-				return
-			}
-			accountMux, children, err := buildNetworks(primary, filepath.Join(config.walletDir, "accounts", id), first)
-			if err != nil {
-				primary.Close()
-				accountsMu.Unlock()
-				http.Error(w, "帳戶載入失敗", 500)
-				return
-			}
-
-			accountHandler = http.StripPrefix("/accounts/"+id, accountMux)
-			accountHandlers[id] = accountHandler
-			accountServices = append(accountServices, primary)
-			accountServices = append(accountServices, children...)
-			startMaintenance(primary)
-			for _, service := range children {
-				startMaintenance(service)
-			}
-		}
-		accountsMu.Unlock()
-		accountHandler.ServeHTTP(w, r)
+		account.handler.ServeHTTP(w, r)
 	})
 	var accessHandler http.Handler = web.RequireAccessToken(workspace, config.accessToken)
 	if config.sharedDemo {

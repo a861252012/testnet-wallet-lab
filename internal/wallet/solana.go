@@ -62,14 +62,15 @@ type solanaDiskRecord struct {
 }
 
 type SolanaService struct {
-	mu      sync.Mutex
-	rpc     *rpc.Client
-	dir     string
-	n       int
-	lock    *os.File
-	quotes  map[QuoteID]*SolanaQuote
-	records []solanaJournalRecord
-	fault   bool
+	mu            sync.Mutex
+	rpc           *rpc.Client
+	dir           string
+	n             int
+	lock          *os.File
+	quotes        map[QuoteID]*SolanaQuote
+	records       []solanaJournalRecord
+	fault         bool
+	historyOffset int
 }
 
 func NewSolanaService(endpoint, dir string, n int) (*SolanaService, error) {
@@ -165,7 +166,7 @@ func (s *SolanaService) Balance(ctx context.Context, address string) (*SolanaBal
 }
 func (s *SolanaService) hasPending() bool {
 	for _, r := range s.records {
-		if !r.Finalized && r.State != "expired_unconfirmed" && r.State != "execution_failed" {
+		if !r.Finalized && r.State != "expired_unconfirmed" {
 			return true
 		}
 	}
@@ -360,47 +361,59 @@ func (s *SolanaService) History(ctx context.Context) ([]SolanaRecord, error) {
 		return nil, err
 	}
 	height, heightErr := s.rpc.GetBlockHeight(ctx, rpc.CommitmentConfirmed)
-	changed := false
-	result := []SolanaRecord{}
-	for i := range s.records {
-		record := &s.records[i]
-		if !record.Finalized {
-			signature, err := sol.SignatureFromBase58(string(record.Signature))
+	// One bounded batch per refresh. Rotate even after RPC failure so older
+	// unresolved records cannot consume every deadline ahead of newer payments.
+	indices := []int{}
+	signatures := []sol.Signature{}
+	if count := len(s.records); count > 0 {
+		start := s.historyOffset % count
+		visited := 0
+		for visited < count && len(signatures) < 256 {
+			i := count - 1 - (start+visited)%count
+			visited++
+			if s.records[i].Finalized {
+				continue
+			}
+			signature, err := sol.SignatureFromBase58(string(s.records[i].Signature))
 			if err != nil {
-				log.Printf("Solana 簽名格式錯誤 %s: %v", record.Signature, err)
-				if i >= len(s.records)-20 {
-					result = append(result, solanaRecordResponse(*record))
-				}
+				log.Print("Solana journal contains an invalid signature")
 				continue
 			}
-			response, err := s.rpc.GetSignatureStatuses(ctx, true, signature)
-			if err != nil || response == nil || len(response.Value) != 1 {
-				log.Printf("Solana 簽名查詢失敗 %s: %v", record.Signature, err)
-				if i >= len(s.records)-20 {
-					result = append(result, solanaRecordResponse(*record))
+			indices = append(indices, i)
+			signatures = append(signatures, signature)
+		}
+		// Track journal positions, not positions in a shrinking pending subset.
+		s.historyOffset = (start + visited) % count
+	}
+	changed := false
+	if len(signatures) > 0 {
+		response, err := s.rpc.GetSignatureStatuses(ctx, true, signatures...)
+		if err != nil || response == nil || len(response.Value) != len(indices) {
+			// SDK errors may contain credentials from the configured RPC URL.
+			log.Print("Solana signature status query failed; retaining previous states")
+		} else {
+			for j, i := range indices {
+				record := &s.records[i]
+				state, finalized := record.State, false
+				if status := response.Value[j]; status != nil {
+					state = crosschainState(status.ConfirmationStatus)
+					finalized = status.ConfirmationStatus == rpc.ConfirmationStatusFinalized
+					if status.Err != nil {
+						state = "execution_failed"
+					}
+				} else if heightErr == nil && height > record.LastValid {
+					state = "expired_unconfirmed"
 				}
-				continue
-			}
-			state := record.State
-			finalized := false
-			if status := response.Value[0]; status != nil {
-				state = crosschainState(status.ConfirmationStatus)
-				finalized = status.ConfirmationStatus == rpc.ConfirmationStatusFinalized
-				if status.Err != nil {
-					state = "execution_failed"
+				if record.State != state || record.Finalized != finalized {
+					record.State, record.Finalized = state, finalized
+					changed = true
 				}
-			} else if heightErr == nil && height > record.LastValid {
-				state = "expired_unconfirmed"
-			}
-			if record.State != state || record.Finalized != finalized {
-				record.State = state
-				record.Finalized = finalized
-				changed = true
 			}
 		}
-		if i >= len(s.records)-20 {
-			result = append(result, solanaRecordResponse(*record))
-		}
+	}
+	result := []SolanaRecord{}
+	for _, record := range s.records[max(0, len(s.records)-20):] {
+		result = append(result, solanaRecordResponse(record))
 	}
 	if changed {
 		if err := s.persist(); err != nil {

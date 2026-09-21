@@ -20,6 +20,9 @@ var (
 	ErrReceiptNotFound   = errors.New("erc4337: 尚未查詢到收據 (仍處於 pending 狀態)")
 )
 
+// Limit decoded receipts (including logs) before allocating RPC result objects.
+const maxBundlerResponseBytes = 2 << 20
+
 // Client 呼叫 Bundler JSON-RPC。
 type Client struct {
 	endpoint   string
@@ -68,15 +71,33 @@ func (c *Client) call(ctx context.Context, method string, params []any, result a
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(httpResp.Body)
-		return fmt.Errorf("erc4337: Bundler HTTP 錯誤代碼 %d: %s", httpResp.StatusCode, string(body))
+		// Error pages are untrusted and may include credentials or arbitrary large content.
+		return fmt.Errorf("erc4337: Bundler HTTP 錯誤代碼 %d", httpResp.StatusCode)
 	}
 
-	var rpcResp JSONRPCResponse
-	if err := json.NewDecoder(httpResp.Body).Decode(&rpcResp); err != nil {
+	body, err := io.ReadAll(io.LimitReader(httpResp.Body, maxBundlerResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("erc4337: 讀取 RPC 回應失敗: %w", err)
+	}
+	if len(body) > maxBundlerResponseBytes {
+		return errors.New("erc4337: RPC 回應超過 2 MiB 上限")
+	}
+	var rpcResp struct {
+		JSONRPC string          `json:"jsonrpc"`
+		ID      json.RawMessage `json:"id"`
+		Result  json.RawMessage `json:"result"`
+		Error   *JSONRPCError   `json:"error"`
+	}
+	if err := json.Unmarshal(body, &rpcResp); err != nil {
 		return fmt.Errorf("erc4337: 解析 RPC 回應失敗: %w", err)
 	}
 
+	var responseID uint64
+	hasResult, hasError := len(rpcResp.Result) > 0, rpcResp.Error != nil
+	if rpcResp.JSONRPC != "2.0" || json.Unmarshal(rpcResp.ID, &responseID) != nil || responseID != reqID ||
+		hasResult == hasError {
+		return errors.New("erc4337: RPC 回應識別碼或結果欄位無效")
+	}
 	if rpcResp.Error != nil {
 		return rpcResp.Error
 	}

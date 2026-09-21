@@ -21,11 +21,17 @@ func TestSLIP10PublishedEd25519Vector(t *testing.T) {
 	}
 }
 
-func TestSolanaConfirmedFailureRefreshesUntilFinalized(t *testing.T) {
-	for _, executionFailed := range []bool{true, false} {
-		name := "finalized_success"
+func TestSolanaUnfinalizedFailureKeepsPending(t *testing.T) {
+	for _, tc := range []struct {
+		commitment      string
+		executionFailed bool
+	}{
+		{"processed", true}, {"processed", false}, {"confirmed", true}, {"confirmed", false},
+	} {
+		commitment, executionFailed := tc.commitment, tc.executionFailed
+		name := commitment + "_finalized_success"
 		if executionFailed {
-			name = "finalized_failure"
+			name = commitment + "_finalized_failure"
 		}
 		t.Run(name, func(t *testing.T) {
 			var queries atomic.Int32
@@ -48,7 +54,7 @@ func TestSolanaConfirmedFailureRefreshesUntilFinalized(t *testing.T) {
 					query := queries.Add(1)
 					status := map[string]any{"slot": 100, "err": nil, "confirmationStatus": "finalized", "confirmations": nil}
 					if query == 1 {
-						status["confirmationStatus"] = "confirmed"
+						status["confirmationStatus"] = commitment
 					}
 					if query == 1 || executionFailed {
 						status["err"] = map[string]any{"InstructionError": []any{0, "InvalidArgument"}}
@@ -73,8 +79,8 @@ func TestSolanaConfirmedFailureRefreshesUntilFinalized(t *testing.T) {
 			if history[0].State != "execution_failed" || history[0].Finalized {
 				t.Fatalf("confirmed failure must remain unfinalized: %+v", history[0])
 			}
-			if s.hasPending() {
-				t.Fatal("execution_failed transaction must not block hasPending")
+			if !s.hasPending() {
+				t.Fatal("unfinalized execution failure must block another payment")
 			}
 			wantState := "finalized"
 			if executionFailed {
@@ -88,6 +94,9 @@ func TestSolanaConfirmedFailureRefreshesUntilFinalized(t *testing.T) {
 				if history[0].State != wantState || !history[0].Finalized {
 					t.Fatalf("expected finalized state %q: %+v", wantState, history[0])
 				}
+			}
+			if s.hasPending() {
+				t.Fatal("finalized transaction must release pending gate")
 			}
 			if queries.Load() != 2 {
 				t.Fatalf("expected two status queries, got %d", queries.Load())
@@ -259,7 +268,15 @@ func TestSolanaExpiredUnconfirmedUnlocksPendingAndQuote(t *testing.T) {
 				http.Error(w, "RPC timeout", http.StatusGatewayTimeout)
 				return
 			}
-			result = map[string]any{"context": map[string]int{"slot": 100}, "value": sigStatuses}
+			var signatures []string
+			json.Unmarshal(req.Params[0], &signatures)
+			values := make([]any, len(signatures))
+			for i := range values {
+				if len(sigStatuses) > 0 {
+					values[i] = sigStatuses[0]
+				}
+			}
+			result = map[string]any{"context": map[string]int{"slot": 100}, "value": values}
 		default:
 			t.Errorf("unexpected Solana RPC %s", req.Method)
 		}
@@ -422,7 +439,7 @@ func TestSolanaExpiredUnconfirmedUnlocksPendingAndQuote(t *testing.T) {
 	if failedRec == nil || failedRec.State != "execution_failed" {
 		t.Fatalf("expected execution_failed state, got %+v", failedRec)
 	}
-	if s.hasPending() {
-		t.Fatal("execution_failed transaction must not block hasPending")
+	if !s.hasPending() {
+		t.Fatal("unfinalized execution failure must block another payment")
 	}
 }

@@ -12,7 +12,7 @@
 | 儲存邊界 | EVM journal、Solana/TRON journal、scan 各有獨立 disk DTO 與具名轉換。service 持有業務紀錄；讀檔先解析，開啟 journal 仍驗證原始簽名交易。activity 索引只保存已驗證公開 hash。 |
 | `internal/chain` | RPC adapter，primitive wire 值先解析為地址、hash、整數及狀態，再供查詢與交易邏輯使用。不可依賴 wallet 或 web。 |
 | `internal/wallet/erc4337` | ABI/hash/signing 保持強型別，既有 JSON codec 經私有 primitive RPC DTO 轉換；失敗不得部分覆寫 receiver，不新增未使用的第二套公開解析 API。 |
-| 前端、scripts、測試、CI | 驗收工具與測試統一使用 Go；前端保留 JavaScript。以 browser fixtures 和 Go CI 驗證整合。 |
+| 前端、scripts、測試、CI | 驗收工具與測試以統一使用 Go 為目標；前端與 browser fixtures 保留 JavaScript。目前 deployment／poll scripts 與部署測試仍有 Python，尚未完成遷移。以實際 CI 命令確認使用語言。 |
 
 複合 EVM 請求在 web → wallet 轉成 command；既有單值 service 入口在服務邊界解析地址、金額、報價或交易 ID，避免每個純量參數都再包一層沒有用途的 command。`QuoteRequest` 及公開 read model 保留相容用途；HTTP 與 durable 檔案使用自己的 DTO。加密 keystore 與備份沿用既有格式，`json.RawMessage` 代表完整加密檔案，不拆成交易業務物件。
 
