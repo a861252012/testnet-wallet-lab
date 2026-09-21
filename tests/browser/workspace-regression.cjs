@@ -98,12 +98,89 @@ module.exports = async function workspaceRegression(page) {
     assert.equal(await result.textContent(), '', 'saved-address selection also invalidates pending receipts');
     assert.equal(await page.locator('#watch-address').inputValue(), owner);
     await page.locator('#watch-saved .contact-row').filter({hasText: owner}).getByRole('button', {name: '移除', exact: true}).click();
-    console.log('PASS: workspace request ordering, stale successes/errors, both callers, field/address invalidation, current errors and normal results (mock APIs).');
+    await page.waitForFunction(() => !document.querySelector('#watch-form button[type=submit]').disabled);
+    await page.evaluate(() => {
+      window.workspaceAssetRequests = [];
+      window.fetch = (url, options) => /\/api\/(balance\?|watch\/token\?)/.test(String(url))
+        ? new Promise(resolve => window.workspaceAssetRequests.push({url: String(url), resolve}))
+        : window.workspaceFetch(url, options);
+    });
+    const assets = page.locator('#watch-result'), assetButton = page.locator('#watch-form button[type=submit]');
+    const tokenA = '0x' + '3'.repeat(40), tokenB = '0x' + '4'.repeat(40);
+    const assetCount = () => page.evaluate(() => window.workspaceAssetRequests.length);
+    const submitAssets = async () => { await assetButton.click(); return (await assetCount()) - 1; };
+    const balance = address => ({address, eth: '1', block: '100', checkedAt: '2026-09-22T00:00:00Z'});
+    const token = contract => ({contract, symbol: 'TEST', balance: '2'});
+    const respondAsset = async (index, data, ok = true) => {
+      await page.evaluate(async ({index, data, ok}) => {
+        window.workspaceAssetRequests[index].resolve({ok, json: async () => data});
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }, {index, data, ok});
+    };
+    for (const mode of ['success', 'error', 'A-B-A']) {
+      await page.locator('#watch-address').fill(owner);
+      await page.locator('#watch-contract').fill(tokenA);
+      first = await submitAssets(); const count = await assetCount();
+      await page.locator('#watch-address').fill(otherOwner);
+      if (mode === 'A-B-A') await page.locator('#watch-address').fill(owner);
+      assert.equal(await assets.textContent(), '', 'address editing clears the asset loading/result state');
+      assert.equal(await assetButton.isDisabled(), true, 'invalidating input does not unlock an in-flight query');
+      await respondAsset(first, mode === 'error' ? {error: 'old balance failure'} : balance(owner), mode !== 'error');
+      assert.equal(await assets.textContent(), '', 'invalidated balance successes/errors remain discarded, including A-B-A');
+      assert.equal(await assetCount(), count, 'invalidated balance must not launch the old token query');
+      assert.equal(await assetButton.isDisabled(), false);
+    }
+    for (const mode of ['success', 'error', 'A-B-A']) {
+      await page.locator('#watch-address').fill(owner);
+      await page.locator('#watch-contract').fill(tokenA);
+      first = await submitAssets(); await respondAsset(first, balance(owner));
+      const tokenRequest = (await assetCount()) - 1;
+      assert.ok(await page.evaluate(index => window.workspaceAssetRequests[index].url.includes('/api/watch/token?'), tokenRequest));
+      await page.locator('#watch-contract').fill(tokenB);
+      if (mode === 'A-B-A') await page.locator('#watch-contract').fill(tokenA);
+      assert.equal(await assets.textContent(), '', 'contract editing clears the asset loading/result state');
+      assert.equal(await assetButton.isDisabled(), true);
+      await respondAsset(tokenRequest, mode === 'error' ? {error: 'old token failure'} : token(tokenA), mode !== 'error');
+      assert.equal(await assets.textContent(), '', 'invalidated token successes/errors remain discarded, including A-B-A');
+      assert.equal(await assetButton.isDisabled(), false);
+    }
+    await page.locator('#watch-address').fill(otherOwner);
+    await page.locator('#watch-contract').fill(tokenB);
+    first = await submitAssets(); await respondAsset(first, balance(otherOwner));
+    await respondAsset((await assetCount()) - 1, token(tokenB));
+    assert.ok((await assets.textContent()).includes(otherOwner) && (await assets.textContent()).includes(tokenB), 'normal latest balance and token results recover');
+    await page.locator('#watch-contract').fill(tokenA);
+    assert.equal(await assets.textContent(), '', 'editing a contract clears a completed result');
+    first = await submitAssets(); await respondAsset(first, balance(otherOwner));
+    await respondAsset((await assetCount()) - 1, {error: 'latest token failure'}, false);
+    assert.match(await assets.textContent(), /latest token failure/);
+    await page.locator('#watch-address').fill(owner);
+    assert.equal(await assets.textContent(), '', 'editing an address clears a completed result');
+    await page.locator('#watch-contract').fill('');
+    first = await submitAssets(); await respondAsset(first, {error: 'latest balance failure'}, false);
+    assert.equal(await assets.textContent(), 'latest balance failure', 'current asset errors remain visible');
+    await page.locator('#watch-save').click();
+    await page.locator('#watch-address').fill(otherOwner);
+    first = await submitAssets(); const count = await assetCount();
+    await page.locator('#watch-saved button').filter({hasText: owner}).click();
+    assert.equal(await page.locator('#watch-address').inputValue(), owner);
+    assert.equal(await assets.textContent(), '', 'saved-address selection clears the asset result');
+    assert.equal(await assetButton.isDisabled(), true);
+    assert.equal(await assetCount(), count, 'saved selection cannot start a second query before the first settles');
+    await respondAsset(first, balance(otherOwner));
+    assert.equal(await assets.textContent(), '', 'saved-address selection invalidates the pending balance');
+    assert.equal(await assetButton.isDisabled(), false);
+    await page.locator('#watch-saved button').filter({hasText: owner}).click();
+    await respondAsset((await assetCount()) - 1, balance(owner));
+    assert.ok((await assets.textContent()).includes(owner), 'saved-address lookup recovers after stale work settles');
+    await page.locator('#watch-saved .contact-row').filter({hasText: owner}).getByRole('button', {name: '移除', exact: true}).click();
+    console.log('PASS: workspace transaction/block and asset query generations, stale successes/errors, A-B-A, saved addresses, completed-result invalidation and recovery (mock APIs).');
   } finally {
     await page.evaluate(locale => {
       window.fetch = window.workspaceFetch;
       delete window.workspaceFetch;
       delete window.workspaceRequests;
+      delete window.workspaceAssetRequests;
       window.FlowI18n.setLocale(locale);
     }, previousLocale);
   }

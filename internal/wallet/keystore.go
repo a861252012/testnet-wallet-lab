@@ -506,9 +506,16 @@ func wipePrivateKey(k *ecdsa.PrivateKey) {
 
 // Multiple aliases for one signing address would otherwise have independent nonce journals.
 func (km *KeystoreManager) checkDuplicateAddress(address common.Address) error {
-	paths, err := filepath.Glob(filepath.Join(km.catalogDir, "accounts", "*", "keystore.json"))
-	if err != nil {
+	accountsDir := filepath.Join(km.catalogDir, "accounts")
+	entries, err := os.ReadDir(accountsDir)
+	if err != nil && !os.IsNotExist(err) {
 		return err
+	}
+	var paths []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			paths = append(paths, filepath.Join(accountsDir, entry.Name(), "keystore.json"))
+		}
 	}
 	paths = append(paths, filepath.Join(km.catalogDir, "keystore.json"))
 	for _, path := range paths {

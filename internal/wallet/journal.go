@@ -496,16 +496,22 @@ func (jm *JournalManager) NonceMined(nonce uint64) bool {
 
 // Archives are written before the active journal is shortened. A crash can leave duplicates, never a gap.
 func (jm *JournalManager) loadArchives() error {
-	paths, err := filepath.Glob(filepath.Join(jm.walletDir, "archive-*.json"))
+	entries, err := os.ReadDir(jm.walletDir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return err
 	}
 	seen := map[string]bool{}
 	for _, r := range jm.records {
 		seen[string(r.Hash)] = true
 	}
-	for _, path := range paths {
-		data, err := os.ReadFile(path)
+	for _, entry := range entries {
+		if matched, _ := filepath.Match("archive-*.json", entry.Name()); !matched {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(jm.walletDir, entry.Name()))
 		if err != nil {
 			return err
 		}
