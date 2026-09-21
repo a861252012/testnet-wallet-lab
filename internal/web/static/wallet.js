@@ -669,8 +669,7 @@
       const data = await walletRequest('/api/wallet/send', { quoteId: quote.id, password: $('send-password').value });
       if (flow && submittedQuote.flowID === flow.id) { flow.pending = {quoteID:submittedQuote.id,hash:data.hash,kind:submittedQuote.flowKind}; saveFlow(); }
       $('send-confirmation').close();
-      if (submittedQuote.escrow || submittedQuote.escrowApproval) $('send-feedback').hidden = true;
-      else showSent(data);
+      showSent(data);
       if (submittedQuote.escrow || submittedQuote.escrowApproval) {
         const payment = submittedQuote.escrow || submittedQuote.escrowApproval;
         $('escrow-lookup-buyer').value = payment.buyer;

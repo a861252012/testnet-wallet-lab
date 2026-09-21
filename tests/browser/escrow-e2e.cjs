@@ -14,6 +14,8 @@ const { chromium } = require('playwright');
   }
   const browser = await chromium.launch({headless:true});
   const context = await browser.newContext({viewport:{width:1280,height:900},locale:'zh-TW'});
+  const origins = new Set([new URL(buyerURL).origin,new URL(sellerURL).origin]);
+  await context.route('**/*',route=>origins.has(new URL(route.request().url()).origin)?route.continue():route.abort());
   const buyer = await context.newPage(), seller = await context.newPage();
   const errors = [];
   for (const page of [buyer,seller]) page.on('pageerror',error=>errors.push(error.message));
@@ -30,16 +32,42 @@ const { chromium } = require('playwright');
     await page.locator('#send-confirmation').waitFor({state:'visible'});
   }
   async function confirm(page,action,amount) {
-    await page.locator('#send-password').fill(process.env.E2E_PASSWORD);
-    const [response] = await Promise.all([
-      page.waitForResponse(response=>new URL(response.url()).pathname==='/api/wallet/send'),
-      page.locator('#confirm-send-button').click(),
-    ]);
-    assert.equal(response.status(),200,await response.text());
-    const data = await response.json();
-    assert.equal(data.action,action);assert.equal(data.amount,amount);
-    await page.locator('#send-confirmation').waitFor({state:'hidden'});
+    let sends = 0;
+    let historyFailures = 0;
+    const countSend = request=>{if(new URL(request.url()).pathname==='/api/wallet/send') sends++;};
+    const unavailableHistory = route=>{
+      if (sends > 0) historyFailures++;
+      return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'fixture history unavailable'})});
+    };
+    await page.route('**/api/wallet/history',unavailableHistory);
+    page.on('request',countSend);
+    let data;
+    try {
+      await page.locator('#send-password').fill(process.env.E2E_PASSWORD);
+      const [response] = await Promise.all([
+        page.waitForResponse(response=>new URL(response.url()).pathname==='/api/wallet/send'),
+        page.locator('#confirm-send-button').click(),
+      ]);
+      assert.equal(response.status(),200,await response.text());
+      data = await response.json();
+      assert.equal(data.action,action);assert.equal(data.amount,amount);
+      await page.locator('#send-confirmation').waitFor({state:'hidden'});
+      await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled&&!document.querySelector('#confirm-send-button').disabled);
+      assert.ok(historyFailures>0,'must exercise history failure after sending');
+      assert.ok((await page.locator('#wallet-error').textContent()).includes('fixture history unavailable'));
+      assert.equal(await page.locator('#send-feedback').isVisible(),true,'history failure must not hide submission evidence');
+      assert.ok((await page.locator('#send-feedback').innerText()).includes(data.hash));
+      assert.ok((await page.locator('#send-feedback a').getAttribute('href')).endsWith(data.hash));
+      assert.equal(await page.locator('#send-password').inputValue(),'');
+      assert.equal(sends,1,'history failure must not trigger another send');
+    } finally {
+      await page.unroute('**/api/wallet/history',unavailableHistory);
+      page.off('request',countSend);
+    }
+    await page.locator('#escrow-refresh').click();
+    await page.waitForFunction(hash=>Array.from(document.querySelectorAll('#escrow-history a')).some(link=>link.href.endsWith(hash)),data.hash);
     await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
+    assert.ok((await page.locator('#send-feedback').innerText()).includes(data.hash),'history recovery retains submission evidence');
     return data;
   }
   async function funded(reference,amount) {
