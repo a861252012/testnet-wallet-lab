@@ -291,8 +291,9 @@ func (s *Service) QuoteCommand(ctx context.Context, command QuoteCommand) (*Quot
 		command.Contract, command.TokenOut = EVMAddress(s.escrowAddress), EVMAddress(s.escrowToken)
 	}
 	// Single outstanding tx constraint: block new quotes while a transaction is in flight
-	if s.journal.HasInFlightTx() {
-		return nil, ErrTxInFlight
+	finalized, err := s.checkInFlight(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	addrStr, err := s.keystore.Address()
@@ -304,6 +305,9 @@ func (s *Service) QuoteCommand(ctx context.Context, command QuoteCommand) (*Quot
 	bound, err := CreateQuote(ctx, s.client, fromAddr, command)
 	if err != nil {
 		return nil, err
+	}
+	if finalized != nil && bound.Nonce < finalized.nonce {
+		return nil, ErrNonceMismatch
 	}
 
 	if command.Action == ActionETH {
@@ -345,8 +349,14 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 		return nil, err
 	}
 
-	if quote.ReplacementHash == "" && s.journal.HasInFlightTx() {
-		return nil, ErrTxInFlight
+	if quote.ReplacementHash == "" {
+		finalized, err := s.checkInFlight(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if finalized != nil && quote.Nonce < finalized.nonce {
+			return nil, ErrNonceMismatch
+		}
 	}
 
 	// Decrypt keystore
@@ -686,9 +696,15 @@ func (s *Service) History(ctx context.Context) (*HistoryResponse, error) {
 		s.storageFault.Store(true)
 		return nil, err
 	}
+	var finalized *finalizedNonce
+	if s.journal.HasInFlightTx() {
+		finalized = s.finalizedNonce(ctx)
+	}
+	transactions, canCreate := s.journal.listHistory(finalized)
 	return &HistoryResponse{
-		Transactions: s.journal.ListHistory(),
-		RefreshError: refreshError,
+		Transactions:         transactions,
+		RefreshError:         refreshError,
+		CanCreateTransaction: finalized != nil && canCreate && !s.storageFault.Load(),
 	}, nil
 }
 

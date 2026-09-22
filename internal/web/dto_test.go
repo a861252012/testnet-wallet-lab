@@ -297,3 +297,33 @@ func assertJSONLiteral(t *testing.T, want string, got any) {
 	}
 	assertSameJSON(t, wantValue, got)
 }
+
+func TestEVMHistorySeparatesConsumedNonceFromPaymentResult(t *testing.T) {
+	result := newEVMHistoryResponse(&wallet.HistoryResponse{
+		CanCreateTransaction: true,
+		Transactions:         []wallet.HistoryItem{{Hash: "original", State: "broadcast_unknown", NonceConsumed: true}},
+	})
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		CanCreateTransaction bool `json:"canCreateTransaction"`
+		Transactions         []struct {
+			State         string `json:"state"`
+			NonceConsumed bool   `json:"nonceConsumed"`
+			Finalized     bool   `json:"finalized"`
+			ReplacedBy    string `json:"replacedBy"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !decoded.CanCreateTransaction || len(decoded.Transactions) != 1 {
+		t.Fatalf("missing eligibility: %s", raw)
+	}
+	item := decoded.Transactions[0]
+	if !item.NonceConsumed || item.State != "broadcast_unknown" || item.Finalized || item.ReplacedBy != "" {
+		t.Fatalf("fabricated payment outcome: %s", raw)
+	}
+}

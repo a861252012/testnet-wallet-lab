@@ -419,6 +419,7 @@ const server = http.createServer(async (req,res)=>{
   assert.equal(await page.locator('#contacts-list img').count(),0);
   await view('send-panel');await page.locator('#contact-select').selectOption(address);assert.equal(await page.locator('#send-to').inputValue(),address);
   await require('./history-freshness.cjs')(context, base);
+  await require('./nonce-recovery.cjs')(context, base);
   await require('./workspace-regression.cjs')(page);
   await require('./escrow-polling.cjs')(page);
   await require('./send-recovery.cjs')(page);

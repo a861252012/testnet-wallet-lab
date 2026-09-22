@@ -331,6 +331,7 @@ func newEVMSendResponse(result *wallet.SendResponse) *evmSendResponse {
 }
 
 type evmHistoryItem struct {
+	NonceConsumed  bool   `json:"nonceConsumed,omitempty"`
 	OrderID        string `json:"orderId,omitempty"`
 	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
 	EscrowContract string `json:"escrowContract,omitempty"`
@@ -350,20 +351,22 @@ type evmHistoryItem struct {
 }
 
 type evmHistoryResponse struct {
-	Transactions []evmHistoryItem `json:"transactions"`
-	RefreshError string           `json:"refreshError,omitempty"`
+	CanCreateTransaction bool             `json:"canCreateTransaction,omitempty"`
+	Transactions         []evmHistoryItem `json:"transactions"`
+	RefreshError         string           `json:"refreshError,omitempty"`
 }
 
 func newEVMHistoryResponse(history *wallet.HistoryResponse) *evmHistoryResponse {
 	if history == nil {
 		return nil
 	}
-	result := &evmHistoryResponse{RefreshError: history.RefreshError}
+	result := &evmHistoryResponse{RefreshError: history.RefreshError, CanCreateTransaction: history.CanCreateTransaction}
 	if history.Transactions != nil {
 		result.Transactions = make([]evmHistoryItem, len(history.Transactions))
 		for i, item := range history.Transactions {
 			result.Transactions[i] = evmHistoryItem{
-				OrderID: item.OrderID, EscrowBuyer: item.EscrowBuyer, EscrowContract: item.EscrowContract,
+				NonceConsumed: item.NonceConsumed,
+				OrderID:       item.OrderID, EscrowBuyer: item.EscrowBuyer, EscrowContract: item.EscrowContract,
 				QuoteID: item.QuoteID, ReplacedBy: item.ReplacedBy, Finalized: item.Finalized,
 				Hash: item.Hash, State: item.State, To: item.To, Amount: item.Amount,
 				Symbol: item.Symbol, Action: item.Action, CreatedAt: item.CreatedAt,

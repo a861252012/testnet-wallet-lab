@@ -1,6 +1,9 @@
 'use strict';
 // Source-message catalog: English and Simplified Chinese. Traditional Chinese is the source.
 window.FlowMessages = {
+  "原交易結果無法確認": ["Original transaction outcome unknown", "原交易结果无法确认"],
+  "原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗，目前可建立新交易。請先核對原付款，避免重複支付。": ["The original transaction outcome is unknown. Its nonce has been consumed in finalized state, so a new transaction can now be created. Check the original payment first to avoid paying twice.", "原交易结果无法确认；该 nonce 已在 finalized 状态被消耗，目前可创建新交易。请先核对原付款，避免重复支付。"],
+  "原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗。請先核對原付款，避免重複支付。": ["The original transaction outcome is unknown. Its nonce has been consumed in finalized state. Check the original payment first to avoid paying twice.", "原交易结果无法确认；该 nonce 已在 finalized 状态被消耗。请先核对原付款，避免重复支付。"],
   "關閉": ["Close", "关闭"],
   "查詢不會送出交易。若需重試，會沿用原交易，不會建立另一筆付款。": ["Checking does not send a transaction. Retrying uses the original transaction without creating another payment.", "查询不会发送交易。若需重试，会沿用原交易，不会创建另一笔付款。"],
   "無法讀取伺服器回應，請稍後再試。": [

@@ -213,8 +213,16 @@ func (jm *JournalManager) forEachRecordLocked(fn func(r *JournalRecord) bool) {
 
 // HasInFlightTx returns true if there is an unconfirmed transaction in flight.
 func (jm *JournalManager) HasInFlightTx() bool {
+	return jm.hasInFlightTx(nil)
+}
+
+func (jm *JournalManager) hasInFlightTx(finalized *finalizedNonce) bool {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
+	return jm.hasInFlightTxLocked(finalized)
+}
+
+func (jm *JournalManager) hasInFlightTxLocked(finalized *finalizedNonce) bool {
 	mined := map[uint64]bool{}
 	jm.forEachRecordLocked(func(r *JournalRecord) bool {
 		if isMinedJournalState(r.State) {
@@ -224,7 +232,7 @@ func (jm *JournalManager) HasInFlightTx() bool {
 	})
 	inFlight := false
 	jm.forEachRecordLocked(func(r *JournalRecord) bool {
-		if !mined[r.Nonce] {
+		if !mined[r.Nonce] && !finalized.consumes(r) {
 			inFlight = true
 			return false
 		}
@@ -333,6 +341,13 @@ func (jm *JournalManager) UpdateStateAtomic(hash string, state string, confirmat
 
 // ListHistory returns a copy of history items sorted newest first, omitting signedRaw.
 func (jm *JournalManager) ListHistory() []HistoryItem {
+	items, _ := jm.listHistory(nil)
+	return items
+}
+
+// The eligibility flag and history share one journal snapshot. Evidence only
+// affects dispatch eligibility; it does not change or finalize a payment result.
+func (jm *JournalManager) listHistory(finalized *finalizedNonce) ([]HistoryItem, bool) {
 	jm.mu.Lock()
 	defer jm.mu.Unlock()
 
@@ -362,13 +377,15 @@ func (jm *JournalManager) ListHistory() []HistoryItem {
 			items[i].State = string(JournalReplaced)
 			items[i].ReplacedBy = string(winner.Hash)
 			items[i].Finalized = winner.Finalized
+		} else if !isMinedJournalState(r.State) && finalized.consumes(r) {
+			items[i].NonceConsumed = true
 		}
 	}
 
 	// Newest first
 	slices.SortStableFunc(items, func(a, b HistoryItem) int { return cmp.Compare(b.CreatedAt, a.CreatedAt) })
 
-	return items
+	return items, !jm.hasInFlightTxLocked(finalized)
 }
 
 type RefreshItem struct {

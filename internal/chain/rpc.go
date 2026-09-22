@@ -155,3 +155,26 @@ func (c *Client) NonceAt(ctx context.Context, account common.Address) (uint64, e
 	}
 	return nonce, nil
 }
+
+// FinalizedNonceAt never falls back to latest. Reverify the network around the
+// observation: a cached network check is insufficient evidence to release a lock.
+func (c *Client) FinalizedNonceAt(ctx context.Context, account common.Address) (uint64, error) {
+	if err := c.verifyNetwork(ctx); err != nil {
+		return 0, err
+	}
+	var failovers uint64
+	if c.transport != nil {
+		failovers = c.transport.failovers.Load()
+	}
+	nonce, err := c.rpc.NonceAt(ctx, account, big.NewInt(-3)) // finalized
+	if err != nil {
+		return 0, rpcError(err)
+	}
+	if err := c.verifyNetwork(ctx); err != nil {
+		return 0, err
+	}
+	if c.transport != nil && c.transport.failovers.Load() != failovers {
+		return 0, ErrUnavailable
+	}
+	return nonce, nil
+}

@@ -76,3 +76,68 @@ func TestCallContractPreservesOnlyRevertErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestFinalizedNonceRequiresTaggedNetworkEvidence(t *testing.T) {
+	for _, scenario := range []string{"success", "unsupported", "RPC error", "wrong network", "network changed", "malformed nonce"} {
+		t.Run(scenario, func(t *testing.T) {
+			chainChecks, nonceChecks := 0, 0
+			account := common.Address{1}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					ID     any      `json:"id"`
+					Method string   `json:"method"`
+					Params []string `json:"params"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					t.Error(err)
+					return
+				}
+				response := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+				switch req.Method {
+				case "eth_chainId":
+					chainChecks++
+					response["result"] = "0xaa36a7"
+					if scenario == "wrong network" || scenario == "network changed" && chainChecks > 1 {
+						response["result"] = "0x1"
+					}
+				case "eth_getTransactionCount":
+					nonceChecks++
+					if len(req.Params) != 2 || req.Params[0] != account.Hex() || req.Params[1] != "finalized" {
+						t.Errorf("wrong nonce query: %v", req.Params)
+					}
+					response["result"] = "0x2"
+					if scenario == "malformed nonce" {
+						response["result"] = "2"
+					}
+					if scenario == "unsupported" || scenario == "RPC error" {
+						delete(response, "result")
+						code := -32602
+						if scenario == "RPC error" {
+							code = -32000
+						}
+						response["error"] = map[string]any{"code": code, "message": "unavailable"}
+					}
+				default:
+					t.Errorf("unexpected method: %s", req.Method)
+				}
+				_ = json.NewEncoder(w).Encode(response)
+			}))
+			defer server.Close()
+			client, err := New(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			// Simulate a previously cached network identity; recovery must recheck it.
+			client.networkVerified.Store(true)
+			nonce, err := client.FinalizedNonceAt(context.Background(), account)
+			if scenario == "success" {
+				if err != nil || nonce != 2 || chainChecks != 2 || nonceChecks != 1 {
+					t.Fatalf("nonce=%d err=%v checks=%d/%d", nonce, err, chainChecks, nonceChecks)
+				}
+			} else if err == nil || nonce != 0 {
+				t.Fatalf("accepted invalid evidence: %d %v", nonce, err)
+			}
+		})
+	}
+}

@@ -97,6 +97,13 @@ func TestProcessKillRestartReusesRaw(t *testing.T) {
 		switch method {
 		case "eth_chainId":
 			return "0xaa36a7"
+		case "eth_getTransactionCount":
+			var args []string
+			if err := json.Unmarshal(params, &args); err != nil || len(args) != 2 || args[1] != "finalized" {
+				t.Errorf("unexpected recovery nonce query: %s", params)
+				return nil
+			}
+			return "0x0" // The interrupted transaction's nonce is still unconsumed.
 		case "eth_sendRawTransaction":
 			var args []string
 			if err := json.Unmarshal(params, &args); err != nil || len(args) != 1 {

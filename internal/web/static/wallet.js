@@ -17,10 +17,16 @@
   const tokenStorageKey = 'flowledger:tokens:' + networkPrefix;
   let historySnapshot = [];
   let historyRefreshError = '';
+  let canCreateTransaction = false;
   let activityPage = 1;
   let activityLoading = false;
   const actionLabels = {speedup:"加速原交易",cancel:"取消原交易（零額自轉）",eth:"資產轉帳",transfer:"代幣轉帳",approve:"代幣授權",wrap:"ETH → WETH 包裝",unwrap:"WETH → ETH 解包",swap:"代幣兌換",vault_deposit:'存入合約',vault_withdraw:'取回錢包',escrow_fund:'付款至合約',escrow_release:'放款給收款人',escrow_refund:'退款給付款人'};
   const stateLabels = { replaced:"同 Nonce 的另一筆交易已收錄", submitted: '已廣播，等待收錄', pending: '等待區塊收錄', broadcast_unknown: '廣播結果待確認', succeeded: '鏈上執行成功', reverted: '鏈上執行失敗', reorg_detected: '區塊變更，待確認', receipt_unavailable: '收據尚不可用' };
+
+  const nonceConsumedNotice = '原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗，目前可建立新交易。請先核對原付款，避免重複支付。';
+  const nonceConsumedBlockedNotice = '原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗。請先核對原付款，避免重複支付。';
+  function transactionLabel(tx) { return tx.nonceConsumed ? '原交易結果無法確認' : stateLabels[tx.state] || '狀態待確認'; }
+  function nonceNotice() { return canCreateTransaction ? nonceConsumedNotice : nonceConsumedBlockedNotice; }
 
   async function walletRequest(path, body) {
     const options = { signal: AbortSignal.timeout(60000) };
@@ -81,10 +87,10 @@
       showWalletError('wallet-error', results[0].reason);
     }
     if (results[1].status === 'fulfilled') {
-      renderHistory(results[1].value.transactions, results[1].value.refreshError || '');
+      renderHistory(results[1].value.transactions, results[1].value.refreshError || '', Boolean(results[1].value.canCreateTransaction));
     }
     else {
-      renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。');
+      renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。', false);
       showWalletError('wallet-error', results[1].reason);
     }
     if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
@@ -97,7 +103,8 @@
     $('check-funding').disabled = false;
   }
 
-  function renderHistory(transactions = historySnapshot, refreshError = historyRefreshError) {
+  function renderHistory(transactions = historySnapshot, refreshError = historyRefreshError, allowNew = canCreateTransaction) {
+    canCreateTransaction = Boolean(allowNew);
     historySnapshot = transactions || [];
     historyRefreshError = refreshError;
     const sent = historySnapshot.find(tx => tx.hash === $('send-feedback').dataset.hash);
@@ -105,12 +112,12 @@
     $('vault-history').replaceChildren();
     for (const tx of historySnapshot.filter(tx => (tx.action || '').startsWith('vault_')).slice(0, 5)) {
       const row = node('p');
-      row.append(node('strong', actionLabels[tx.action] || '合約操作'), node('span', ` · ${tx.amount} ETH · `), node('span', stateLabels[tx.state] || '狀態待確認'), document.createTextNode(' '), explorer('tx', tx.hash));
+      row.append(node('strong', actionLabels[tx.action] || '合約操作'), node('span', ` · ${tx.amount} ETH · `), node('span', transactionLabel(tx)), document.createTextNode(' '), explorer('tx', tx.hash));
       $('vault-history').append(row);
     }
     if (!$('vault-history').children.length) $('vault-history').append(node('p', '尚無合約操作紀錄，完成存入或取回後會顯示在這裡。', 'muted'));
     const term = $('history-search').value.trim().toLowerCase();
-    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.orderId,tx.symbol,tx.amount,actionLabels[tx.action],stateLabels[tx.state],window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
+    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.orderId,tx.symbol,tx.amount,actionLabels[tx.action],transactionLabel(tx),window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
     const list = $('wallet-history');
     list.replaceChildren();
     if (historyRefreshError) list.append(node('p', historyRefreshError, 'error'));
@@ -127,13 +134,14 @@
       if (tx.orderId && tx.escrowBuyer) summary.append(escrowHistoryButton(tx));
       expanded.append(node('p', `${tx.action === 'approve' ? '被授權地址' : '收款人'} ${tx.to}`, 'mono'), explorer('tx', tx.hash));
       const amount = node('div', '', 'history-amount');
-      amount.append(node('strong', `${tx.amount} ${tx.symbol}`), document.createElement('br'), node('span', stateLabels[tx.state] || '狀態待確認', `state-badge${tx.state === 'succeeded' ? '' : tx.state === 'reverted' ? ' danger' : ' warning'}`));
+      amount.append(node('strong', `${tx.amount} ${tx.symbol}`), document.createElement('br'), node('span', transactionLabel(tx), `state-badge${tx.state === 'succeeded' ? '' : tx.state === 'reverted' ? ' danger' : ' warning'}`));
+      if (tx.nonceConsumed) summary.append(node('p', nonceNotice(), 'warning'));
       if (tx.replacedBy) expanded.append(node('p', '已收錄的替代交易：'), explorer('tx', tx.replacedBy));
       if (tx.finalized) amount.append(node('p', '已達鏈上終局性'));
       else if (tx.confirmations) amount.append(node('p', `${tx.confirmations} 次確認`));
       if (tx.feeEth) amount.append(node('p', `實際費用 ${tx.feeEth} ${nativeSymbol}`));
       if (tx.action !== 'eth' && tx.state === 'succeeded') expanded.append(node('p', (tx.action || '').startsWith('vault_') ? '收據顯示執行成功；請至智慧合約頁更新餘額。' : '收據顯示執行成功；代幣實際移動請核對合約紀錄。'));
-      if (tx.state === 'broadcast_unknown' || tx.state === 'submitted' || tx.state === 'pending') {
+      if (!tx.nonceConsumed && (tx.state === 'broadcast_unknown' || tx.state === 'submitted' || tx.state === 'pending')) {
         const retry = node('button', '重新廣播原交易', 'secondary');
         retry.type = 'button';
         retry.addEventListener('click', async () => {
@@ -166,7 +174,7 @@
   function showSent(data) {
     $('send-feedback').dataset.hash = data.hash;
     $('send-feedback').hidden = false;
-    $('send-feedback').replaceChildren(node('strong', stateLabels[data.state] || '交易已記錄，結果待確認'), node('p', data.hash, 'mono'), explorer('tx', data.hash), node('p', '已記錄交易雜湊。更新交易紀錄以確認收錄結果；廣播成功不等於交易執行成功。'));
+    $('send-feedback').replaceChildren(node('strong', transactionLabel(data)), node('p', data.hash, 'mono'), explorer('tx', data.hash), node('p', data.nonceConsumed ? nonceNotice() : '已記錄交易雜湊。更新交易紀錄以確認收錄結果；廣播成功不等於交易執行成功。'));
   }
 
   async function loadWallet() {
@@ -425,7 +433,7 @@
     $('escrow-history').replaceChildren();
     for (const tx of rows) {
       const row = node('p');
-      row.append(node('strong',actionLabels[tx.action] || tx.action),node('span',` · ${tx.amount} USDC · `),node('span',stateLabels[tx.state] || '狀態待確認'),document.createTextNode(' '),explorer('tx',tx.hash));
+      row.append(node('strong',actionLabels[tx.action] || tx.action),node('span',` · ${tx.amount} USDC · `),node('span',transactionLabel(tx)),document.createTextNode(' '),explorer('tx',tx.hash));
       if (tx.orderId && tx.escrowBuyer) {
         const reference = node('span',orderKeyLabel(tx.orderId));
         reference.translate = false;
@@ -733,7 +741,7 @@
     $('check-send-history').disabled = $('confirm-send-button').disabled = $('cancel-send').disabled = true;
     try {
       const history = await walletRequest('/api/wallet/history');
-      renderHistory(history.transactions,history.refreshError || '');
+      renderHistory(history.transactions,history.refreshError || '',Boolean(history.canCreateTransaction));
       const transaction = history.transactions.find(tx => tx.quoteId === original.id);
       if (transaction) await completeSend(transaction,original);
       else showWalletError('confirm-error',new Error('尚未找到原交易，仍無法確認結果。請稍後再查，或重試原交易。'));
@@ -916,14 +924,15 @@
     try {
       if (!historyFresh) {
         const history = await walletRequest('/api/wallet/history').catch(error => {
-          renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。');
+          renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。', false);
           throw error;
         });
         if (flow !== current || current.pending !== pending) return;
-        renderHistory(history.transactions, history.refreshError || '');
+        renderHistory(history.transactions, history.refreshError || '', Boolean(history.canCreateTransaction));
       }
       if(!pending.hash){const known=historySnapshot.find(tx=>tx.quoteId===pending.quoteID);if(!known){renderFlow('尚未找到原報價的交易紀錄。請更新進度，或在原確認視窗重試同一筆報價。');return;}pending.hash=known.hash;saveFlow();}
       const original = historySnapshot.find(tx => tx.hash === pending.hash);
+      if (original?.nonceConsumed) { renderFlow(nonceNotice()); return; }
       let effectiveHash = pending.hash;
       let cancelled = false;
       if (original?.replacedBy) {

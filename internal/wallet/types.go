@@ -367,6 +367,7 @@ type SendResponse struct {
 }
 
 type HistoryItem struct {
+	NonceConsumed  bool   `json:"nonceConsumed,omitempty"`
 	OrderID        string `json:"orderId,omitempty"`
 	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
 	EscrowContract string `json:"escrowContract,omitempty"`
@@ -386,8 +387,9 @@ type HistoryItem struct {
 }
 
 type HistoryResponse struct {
-	Transactions []HistoryItem `json:"transactions"`
-	RefreshError string        `json:"refreshError,omitempty"`
+	CanCreateTransaction bool          `json:"canCreateTransaction,omitempty"`
+	Transactions         []HistoryItem `json:"transactions"`
+	RefreshError         string        `json:"refreshError,omitempty"`
 }
 
 type JournalRecord struct {
