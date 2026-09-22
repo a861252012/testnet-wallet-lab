@@ -291,13 +291,16 @@ const server = http.createServer(async (req,res)=>{
   await page.locator('#wallet-dashboard').waitFor({state:'visible'});
   assert.equal(await page.locator('a[href="/login"]').count(),0);
   await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
+  await page.waitForFunction(()=>document.querySelector('#token-list').getAttribute('aria-busy')==='false');
   enforceTokenLimit=true;
   await page.locator('#refresh-wallet').click();await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
+  await page.waitForFunction(()=>document.querySelector('#token-list').getAttribute('aria-busy')==='false');
   assert.equal(tokenLimitHits,0,'token refresh respects single concurrent POST limit');
   assert.equal(await page.locator('#token-error').isVisible(),false);enforceTokenLimit=false;
   for(const csrf of ['fixture-after-restart','fixture']){
    walletCSRF=csrf;await page.locator('#refresh-wallet').click();
    await page.waitForFunction(()=>!document.querySelector('#refresh-wallet').disabled);
+   await page.waitForFunction(()=>document.querySelector('#token-list').getAttribute('aria-busy')==='false');
    assert.equal(await page.locator('#token-error').isVisible(),false,'refresh renews CSRF before token queries after a restart');
   }
 
@@ -423,6 +426,8 @@ const server = http.createServer(async (req,res)=>{
   await require('./workspace-regression.cjs')(page);
   await require('./escrow-polling.cjs')(page);
   await require('./send-recovery.cjs')(page);
+  await require('./wallet-refresh.cjs')(page);
+  await require('./escrow-speedup.cjs')(page);
   console.log('PASS: transaction and block queries reject stale successes/errors and clear invalidated results.');
   await view('watch-panel');await page.locator('#watch-address').fill(address);await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('1 ETH'));
   balanceFailure=true;await page.locator('#watch-form button[type=submit]').click();await page.waitForFunction(()=>document.querySelector('#watch-result').textContent.includes('unavailable'));balanceFailure=false;

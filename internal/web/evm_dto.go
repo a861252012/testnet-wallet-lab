@@ -310,14 +310,15 @@ func newEVMQuoteResponse(quote *wallet.QuoteResponse) *evmQuoteResponse {
 }
 
 type evmSendResponse struct {
-	Reused    bool   `json:"reused,omitempty"`
-	Hash      string `json:"hash"`
-	State     string `json:"state"`
-	To        string `json:"to"`
-	Amount    string `json:"amount"`
-	Symbol    string `json:"symbol"`
-	Action    string `json:"action"`
-	CreatedAt string `json:"createdAt"`
+	EscrowAction string `json:"escrowAction,omitempty"`
+	Reused       bool   `json:"reused,omitempty"`
+	Hash         string `json:"hash"`
+	State        string `json:"state"`
+	To           string `json:"to"`
+	Amount       string `json:"amount"`
+	Symbol       string `json:"symbol"`
+	Action       string `json:"action"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 func newEVMSendResponse(result *wallet.SendResponse) *evmSendResponse {
@@ -325,12 +326,14 @@ func newEVMSendResponse(result *wallet.SendResponse) *evmSendResponse {
 		return nil
 	}
 	return &evmSendResponse{
-		Reused: result.Reused, Hash: result.Hash, State: result.State, To: result.To,
+		EscrowAction: result.EscrowAction,
+		Reused:       result.Reused, Hash: result.Hash, State: result.State, To: result.To,
 		Amount: result.Amount, Symbol: result.Symbol, Action: result.Action, CreatedAt: result.CreatedAt,
 	}
 }
 
 type evmHistoryItem struct {
+	EscrowAction   string `json:"escrowAction,omitempty"`
 	NonceConsumed  bool   `json:"nonceConsumed,omitempty"`
 	OrderID        string `json:"orderId,omitempty"`
 	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
@@ -365,6 +368,7 @@ func newEVMHistoryResponse(history *wallet.HistoryResponse) *evmHistoryResponse 
 		result.Transactions = make([]evmHistoryItem, len(history.Transactions))
 		for i, item := range history.Transactions {
 			result.Transactions[i] = evmHistoryItem{
+				EscrowAction:  item.EscrowAction,
 				NonceConsumed: item.NonceConsumed,
 				OrderID:       item.OrderID, EscrowBuyer: item.EscrowBuyer, EscrowContract: item.EscrowContract,
 				QuoteID: item.QuoteID, ReplacedBy: item.ReplacedBy, Finalized: item.Finalized,

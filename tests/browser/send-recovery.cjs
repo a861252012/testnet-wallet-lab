@@ -75,10 +75,13 @@ module.exports = async function sendRecovery(existingPage) {
     }
     history=[];sends=[];
     await preview();
-    await page.route('**/api/wallet/send',route=>route.fulfill({status:401,json:{code:'send_rejected',error:'密碼錯誤'}}));
-    await submit();
-    assert.equal(await page.locator('#confirm-error').textContent(),'密碼錯誤');
-    assert.equal(await page.locator('#check-send-history').isVisible(),false,'definite rejection keeps the normal correction flow');
+    for (const [status,message] of [[401,'密碼錯誤'],[500,'本機錢包儲存失敗，請檢查資料磁碟與權限']]) {
+      await page.route('**/api/wallet/send',route=>route.fulfill({status,json:{code:'send_rejected',error:message}}));
+      await submit();
+      assert.equal(await page.locator('#confirm-error').textContent(),message);
+      assert.equal(await page.locator('#check-send-history').isVisible(),false,'definite rejection keeps the normal correction flow');
+      await page.unroute('**/api/wallet/send');
+    }
     assert.deepEqual(errors,[]);
     console.log('PASS: HTML/empty/malformed/null responses and disconnect retain unknown outcome; history recovery never resends, expired retry preserves quote ID, definite rejection stays actionable.');
   } finally { await context.close(); }

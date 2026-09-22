@@ -1028,17 +1028,17 @@ window.FlowMessages = {
     "← Open wallet",
     "← 打开钱包"
   ],
-  "從一筆意圖，": [
-    "From an intent",
-    "从一笔意图，"
+  "測試網轉帳、兌換": [
+    "Testnet transfers, swaps",
+    "测试网转账、兑换"
   ],
-  "到可查核的鏈上結果。": [
-    "to a verifiable on-chain result.",
-    "到可查核的链上结果。"
+  "與交易復原。": [
+    "and transaction recovery.",
+    "与交易恢复。"
   ],
-  "本機測試錢包：報價、簽署、廣播、恢復與收據核對。": [
-    "A local test wallet: quote, sign, broadcast, recover and verify receipts.",
-    "本机测试钱包：报价、签署、广播、恢复与收据核对。"
+  "用 Go 實作多鏈測試網錢包，練習簽署交易、預估手續費與處理失敗。": [
+    "A Go multichain testnet wallet for practicing transaction signing, fee estimation and failure handling.",
+    "用 Go 实现多链测试网钱包，练习签署交易、预估手续费与处理失败。"
   ],
   "先操作，再深入": [
     "Try it, then explore the design",
@@ -1088,13 +1088,13 @@ window.FlowMessages = {
     "Design & verification documents ↗",
     "设计与验证文档 ↗"
   ],
-  "架構與責任": [
-    "Architecture & responsibilities",
-    "架构与责任"
+  "交易怎麼處理": [
+    "How transactions are handled",
+    "交易如何处理"
   ],
-  "UI：顯示意圖與費用": [
-    "UI: show intent and fees",
-    "UI：显示意图与费用"
+  "畫面：核對交易內容與手續費": [
+    "UI: review transaction details and fees",
+    "页面：核对交易内容与手续费"
   ],
   "Go：驗證、模擬、綁定報價": [
     "Go: validate, simulate and bind quotes",
@@ -1180,9 +1180,9 @@ window.FlowMessages = {
     "2:20–3:00: Receipts, recovery and design tradeoffs.",
     "2:20–3:00：收据证据、失败恢复及设计取舍。"
   ],
-  "完整上鏈展示須由錢包持有人在本機簽署；錄影不得包含助記詞或密碼。": [
-    "A full on-chain demo requires local signing by the wallet owner. Never record passwords or recovery phrases.",
-    "完整上链展示须由钱包持有人在本机签署；录像不得包含助记词或密码。"
+  "送出交易需要錢包密碼；錄影時請隱藏助記詞與密碼。": [
+    "Sending a transaction requires the wallet password. Hide recovery phrases and passwords when recording.",
+    "发送交易需要钱包密码；录像时请隐藏助记词与密码。"
   ],
   "可深入討論的設計": [
     "Design discussions",
@@ -1208,9 +1208,9 @@ window.FlowMessages = {
     "How should the UI represent unknown or stale data when RPC is unavailable?",
     "在 RPC 不可用时，接口如何表达未知与过期信息？"
   ],
-  "目前限本機測試用途；Exchange 合約僅配置 Ethereum Sepolia。Solana 原生 SOL 功能不包含 SPL 代幣、DEX 或跨鏈橋。功能、測試與鏈上驗收範圍請以當次驗證紀錄為準。": [
-    "Local test use only. Exchange contracts are configured only on Ethereum Sepolia. Solana supports native SOL, not SPL, DEX or bridging. Refer to the relevant verification report for feature and acceptance scope.",
-    "目前限本机测试用途；Exchange 合约仅配置 Ethereum Sepolia。Solana 原生 SOL 功能不包含 SPL 代币、DEX 或跨链桥。功能、测试与链上验收范围请以当次验证记录为准。"
+  "僅支援測試網，可在本機操作或使用公開 Demo。代幣兌換限 Ethereum Sepolia；Solana 目前只支援 SOL，不支援 SPL 代幣、DEX 或跨鏈橋。各項功能的驗證結果請見對應紀錄。": [
+    "Testnets only, available locally or through the public demo. Token swaps use Ethereum Sepolia; Solana currently supports SOL, without SPL tokens, DEX or bridging. See the corresponding records for verification results.",
+    "仅支持测试网，可在本机操作或使用公开 Demo。代币兑换限 Ethereum Sepolia；Solana 目前只支持 SOL，不支持 SPL 代币、DEX 或跨链桥。各项功能的验证结果请见对应记录。"
   ],
   "Solana Devnet · 支援 SOL 收付款。": [
     "Solana Devnet · Send and receive SOL.",
@@ -3654,6 +3654,9 @@ Object.assign(window.FlowMessages, {
   '確認付款至合約':['Confirm payment into escrow','确认付款至合约'],
   '確認放款給收款人':['Confirm release to recipient','确认放款给收款人'],
   '確認全額退款':['Confirm full refund','确认全额退款'],
+  '確認加速原交易':['Confirm speeding up the original transaction','确认加速原交易'],
+  '原操作':['Original action','原操作'],
+  '最多扣除 ${symbol}':['Maximum debit ${symbol}','最多扣除 ${symbol}'],
   '託管合約':['Escrow contract','托管合约'],
   '資金去向':['Funds destination','资金去向'],
   '目前錢包 → 託管合約':['Current wallet → Escrow contract','当前钱包 → 托管合约'],

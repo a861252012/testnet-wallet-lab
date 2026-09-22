@@ -374,11 +374,6 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 			case errors.Is(err, chain.ErrTimeout):
 				status = http.StatusGatewayTimeout
 			}
-			var rejected *wallet.SendRejectedError
-			if errors.As(err, &rejected) {
-				respondWallet(w, status, map[string]string{"error": err.Error(), "code": "send_rejected"}, nil)
-				return
-			}
 			respondWallet(w, status, nil, err)
 			return
 		}
@@ -515,12 +510,17 @@ func registerWalletRoutes(mux *http.ServeMux, ws *wallet.Service) {
 func respondWallet(w http.ResponseWriter, status int, result any, err error) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err != nil {
+		body := make(map[string]string)
+		if _, ok := errors.AsType[*wallet.SendRejectedError](err); ok {
+			body["code"] = "send_rejected"
+		}
 		if _, ok := errors.AsType[*os.PathError](err); ok {
 			err = errors.New("本機錢包儲存失敗，請檢查資料磁碟與權限")
 			status = http.StatusInternalServerError
 		}
+		body["error"] = err.Error()
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		_ = json.NewEncoder(w).Encode(body)
 		return
 	}
 	w.WriteHeader(status)

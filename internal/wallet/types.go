@@ -356,17 +356,19 @@ type QuoteResponse struct {
 }
 
 type SendResponse struct {
-	Reused    bool   `json:"reused,omitempty"`
-	Hash      string `json:"hash"`
-	State     string `json:"state"`
-	To        string `json:"to"`
-	Amount    string `json:"amount"`
-	Symbol    string `json:"symbol"`
-	Action    string `json:"action"`
-	CreatedAt string `json:"createdAt"`
+	EscrowAction string `json:"escrowAction,omitempty"`
+	Reused       bool   `json:"reused,omitempty"`
+	Hash         string `json:"hash"`
+	State        string `json:"state"`
+	To           string `json:"to"`
+	Amount       string `json:"amount"`
+	Symbol       string `json:"symbol"`
+	Action       string `json:"action"`
+	CreatedAt    string `json:"createdAt"`
 }
 
 type HistoryItem struct {
+	EscrowAction   string `json:"escrowAction,omitempty"`
 	NonceConsumed  bool   `json:"nonceConsumed,omitempty"`
 	OrderID        string `json:"orderId,omitempty"`
 	EscrowBuyer    string `json:"escrowBuyer,omitempty"`
@@ -394,7 +396,8 @@ type HistoryResponse struct {
 
 type JournalRecord struct {
 	OrderID OrderReference
-	// These addresses are derived from SignedRaw when loading or appending.
+	// These fields are derived from SignedRaw when loading or appending.
+	EscrowAction   TransactionAction
 	EscrowBuyer    EVMAddress
 	EscrowContract EVMAddress
 	Finalized      bool

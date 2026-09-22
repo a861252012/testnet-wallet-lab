@@ -137,17 +137,11 @@ func (m *MockBundlerServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 			m.writeError(w, req.ID, ErrCodeInvalidParams, "參數不足")
 			return
 		}
-		est := &GasEstimate{
-			PreVerificationGas:   big.NewInt(50000),
-			VerificationGasLimit: big.NewInt(100000),
-			CallGasLimit:         big.NewInt(200000),
-		}
-
-		resBytes, _ := json.Marshal(est)
+		// Keep the response independent of GasEstimate's codec so swapped fields cannot cancel out.
 		json.NewEncoder(w).Encode(JSONRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
-			Result:  resBytes,
+			Result:  json.RawMessage(`{"preVerificationGas":"0xc350","verificationGasLimit":"0x186a0","callGasLimit":"0x30d40"}`),
 		})
 
 	case "eth_getUserOperationReceipt":

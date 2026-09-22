@@ -20,7 +20,7 @@ A Solidity deposit/withdraw contract with a Sepolia-only panel, per-address bala
 
 ## Run and verify
 
-[Local setup](docs/wallet-reference.md#run-with-docker) · [Architecture](docs/architecture.md) · [Recovery checks](docs/demo-script.md) · [Go style and checks](docs/go-style.md)
+[Local setup](docs/wallet-reference.md#run-with-docker) · [Architecture](docs/architecture.md) · [Recovery checks](docs/demo-script.md) · [Go style and checks](docs/go-style.md) · [Verification evidence](docs/evidence/README.md)
 
 ## Features
 

@@ -127,13 +127,14 @@ func (s *Service) ChainID() int64 {
 
 func sendResponseFromRecord(record *JournalRecord, state JournalState) *SendResponse {
 	return &SendResponse{
-		Hash:      string(record.Hash),
-		State:     string(state),
-		To:        string(record.To),
-		Amount:    record.Amount,
-		Symbol:    record.Symbol,
-		Action:    string(record.Action),
-		CreatedAt: record.CreatedAt.Format(time.RFC3339),
+		EscrowAction: string(record.EscrowAction),
+		Hash:         string(record.Hash),
+		State:        string(state),
+		To:           string(record.To),
+		Amount:       record.Amount,
+		Symbol:       record.Symbol,
+		Action:       string(record.Action),
+		CreatedAt:    record.CreatedAt.Format(time.RFC3339),
 	}
 }
 
@@ -435,9 +436,8 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 			return nil, ErrApprovalRace
 		}
 	}
-	switch quote.Action {
-	case ActionEscrowFund, ActionEscrowRelease, ActionEscrowRefund:
-		if s.client.ChainID() != chain.SepoliaID || s.escrowAddress == "" || quote.Escrow == nil || quote.Contract != common.HexToAddress(s.escrowAddress) || quote.Escrow.Token != s.escrowToken {
+	if isEscrowAction(quote.Action) || quote.Escrow != nil {
+		if s.client.ChainID() != chain.SepoliaID || s.escrowAddress == "" || quote.Escrow == nil || !isEscrowAction(quote.Escrow.Action) || (quote.Action != ActionSpeedup && quote.Action != quote.Escrow.Action) || quote.Contract != common.HexToAddress(s.escrowAddress) || quote.Escrow.Token != s.escrowToken {
 			return nil, errors.New("託管設定已變更，請重新預估")
 		}
 		if err := verifyEscrow(ctx, s.client, quote.Contract, common.HexToAddress(s.escrowToken)); err != nil {
@@ -446,6 +446,8 @@ func (s *Service) Send(ctx context.Context, quoteID, password string) (result *S
 		if err := simulateEscrow(ctx, s.client, quote.From, quote.TxTo, quote.Data); err != nil {
 			return nil, err
 		}
+	}
+	switch quote.Action {
 	case "wrap", "unwrap", "swap":
 		if err := RecheckExchange(ctx, s.client, quote); err != nil {
 			return nil, err

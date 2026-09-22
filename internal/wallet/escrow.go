@@ -50,46 +50,80 @@ func (reference OrderReference) key() common.Hash {
 	return crypto.Keccak256Hash([]byte(reference))
 }
 
-// Bind the saved reference to signed calldata; derive buyer and contract instead of trusting disk metadata.
-func restoreEscrowJournal(record *JournalRecord, tx *types.Transaction) error {
-	if !isEscrowAction(record.Action) {
-		if record.OrderID != "" {
-			return errors.New("非託管交易不可包含訂單編號")
-		}
-		return nil
-	}
-	methodName := map[TransactionAction]string{ActionEscrowFund: "fund", ActionEscrowRelease: "release", ActionEscrowRefund: "refund"}[record.Action]
-	method := escrowABI.Methods[methodName]
+type escrowCall struct {
+	action   TransactionAction
+	buyer    common.Address
+	orderKey common.Hash
+	seller   common.Address
+	amount   *big.Int
+}
+
+// A replacement's outer action is speedup. Recover its original operation
+// from canonical signed calldata, including old journals without order metadata.
+func decodeEscrowTransaction(tx *types.Transaction) (*escrowCall, error) {
 	data := tx.Data()
-	if tx.To() == nil || len(data) < 4 || !bytes.Equal(data[:4], method.ID) {
-		return errors.New("交易日誌的託管操作與簽名不符")
+	if len(data) < 4 {
+		return nil, nil
+	}
+	method, err := escrowABI.MethodById(data[:4])
+	if err != nil {
+		return nil, nil
+	}
+	action := map[string]TransactionAction{"fund": ActionEscrowFund, "release": ActionEscrowRelease, "refund": ActionEscrowRefund}[method.Name]
+	if action == "" {
+		return nil, nil
+	}
+	if tx.To() == nil || tx.Value().Sign() != 0 {
+		return nil, errors.New("交易日誌的託管操作與簽名不符")
 	}
 	values, err := method.Inputs.Unpack(data[4:])
 	if err != nil {
-		return errors.New("交易日誌的訂單資料不完整")
+		return nil, errors.New("交易日誌的訂單資料不完整")
 	}
 	encoded, err := method.Inputs.Pack(values...)
 	if err != nil || !bytes.Equal(encoded, data[4:]) {
-		return errors.New("交易日誌的訂單資料不符")
+		return nil, errors.New("交易日誌的訂單資料不符")
 	}
-	var buyer common.Address
-	var key common.Hash
-	if record.Action == ActionEscrowFund {
-		buyer, err = types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
-		if err != nil {
-			return errors.New("無法驗證交易日誌的付款人")
-		}
-		key = values[0].([32]byte)
+	sender, err := types.Sender(types.LatestSignerForChainID(tx.ChainId()), tx)
+	if err != nil {
+		return nil, errors.New("無法驗證交易日誌的簽名")
+	}
+	call := &escrowCall{action: action}
+	if action == ActionEscrowFund {
+		call.buyer, call.orderKey = sender, values[0].([32]byte)
+		call.seller, call.amount = values[1].(common.Address), values[2].(*big.Int)
 	} else {
-		buyer = values[0].(common.Address)
-		key = values[1].([32]byte)
+		call.buyer, call.orderKey = values[0].(common.Address), values[1].([32]byte)
+	}
+	return call, nil
+}
+
+// Persist only the escrow reference. Derive the original action, buyer and
+// contract from signed bytes, never from unverified disk metadata.
+func restoreEscrowJournal(record *JournalRecord, tx *types.Transaction) error {
+	record.EscrowAction, record.EscrowBuyer, record.EscrowContract = "", "", ""
+	// Disk action is a display field. Decode first so removing the reference
+	// or changing that field cannot bypass escrow checks during a speedup.
+	call, err := decodeEscrowTransaction(tx)
+	if err != nil {
+		return err
+	}
+	if call == nil {
+		if isEscrowAction(record.Action) || record.OrderID != "" {
+			return errors.New("交易日誌的託管操作與簽名不符")
+		}
+		return nil
+	}
+	if record.Action != "" && record.Action != ActionSpeedup && record.Action != call.action {
+		return errors.New("交易日誌的託管操作與簽名不符")
 	}
 	if record.OrderID == "" {
-		record.OrderID = OrderReference(key.Hex())
-	} else if _, err := ParseOrderReference(string(record.OrderID)); err != nil || record.OrderID.key() != key {
+		record.OrderID = OrderReference(call.orderKey.Hex())
+	} else if _, err := ParseOrderReference(string(record.OrderID)); err != nil || record.OrderID.key() != call.orderKey {
 		return errors.New("交易日誌的訂單編號與簽名不符")
 	}
-	record.EscrowBuyer = EVMAddress(buyer.Hex())
+	record.EscrowAction = call.action
+	record.EscrowBuyer = EVMAddress(call.buyer.Hex())
 	record.EscrowContract = EVMAddress(tx.To().Hex())
 	return nil
 }
@@ -118,6 +152,7 @@ type EscrowOrder struct {
 }
 
 type EscrowPreview struct {
+	Action  TransactionAction
 	OrderID string
 	Buyer   string
 	Seller  string
@@ -356,7 +391,37 @@ func prepareEscrow(ctx context.Context, provider ChainQuoteProvider, from common
 	if command.Action == ActionEscrowRefund {
 		to = buyer
 	}
-	return &escrowPayload{To: to, Data: data, Amount: amount, Method: method, Preview: &EscrowPreview{OrderID: string(reference), Buyer: buyer.Hex(), Seller: seller.Hex(), Token: token.Hex()}}, nil
+	return &escrowPayload{To: to, Data: data, Amount: amount, Method: method, Preview: &EscrowPreview{Action: command.Action, OrderID: string(reference), Buyer: buyer.Hex(), Seller: seller.Hex(), Token: token.Hex()}}, nil
+}
+
+func (s *Service) prepareEscrowSpeedup(ctx context.Context, from common.Address, record *JournalRecord, tx *types.Transaction) (*escrowPayload, error) {
+	if s.escrowAddress == "" || tx.To() == nil || *tx.To() != common.HexToAddress(s.escrowAddress) {
+		return nil, errors.New("託管設定已變更，請重新預估")
+	}
+	call, err := decodeEscrowTransaction(tx)
+	if err != nil {
+		return nil, err
+	}
+	if call == nil {
+		return nil, errors.New("原交易不是託管操作")
+	}
+	command := QuoteCommand{
+		Action: call.action, OrderID: record.OrderID, Buyer: EVMAddress(call.buyer.Hex()),
+		Contract: EVMAddress(s.escrowAddress), TokenOut: EVMAddress(s.escrowToken),
+	}
+	if call.action == ActionEscrowFund {
+		command.To, command.Amount = EVMAddress(call.seller.Hex()), FormatUnits(call.amount, 6)
+	}
+	// Funding details come from signed calldata; settlement details come from
+	// the on-chain order. Never use the journal's display amount or recipient.
+	payload, err := prepareEscrow(ctx, s.client, from, command)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(payload.Data, tx.Data()) {
+		return nil, errors.New("原託管交易的簽名內容與訂單不符")
+	}
+	return payload, nil
 }
 
 func simulateEscrow(ctx context.Context, caller ChainCaller, from, contract common.Address, data []byte) error {

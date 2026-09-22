@@ -30,6 +30,7 @@ func newEVMEscrowOrder(order *wallet.EscrowOrder) *evmEscrowOrder {
 }
 
 type evmEscrowPreview struct {
+	Action  string `json:"action"`
 	OrderID string `json:"orderId"`
 	Buyer   string `json:"buyer"`
 	Seller  string `json:"seller"`
@@ -40,5 +41,5 @@ func newEVMEscrowPreview(preview *wallet.EscrowPreview) *evmEscrowPreview {
 	if preview == nil {
 		return nil
 	}
-	return &evmEscrowPreview{OrderID: preview.OrderID, Buyer: preview.Buyer, Seller: preview.Seller, Token: preview.Token}
+	return &evmEscrowPreview{Action: string(preview.Action), OrderID: preview.OrderID, Buyer: preview.Buyer, Seller: preview.Seller, Token: preview.Token}
 }

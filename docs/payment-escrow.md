@@ -40,10 +40,12 @@
 - `GET /api/wallet/escrow`：啟用狀態、固定合約與代幣、目前錢包的餘額與授權。
 - `GET /api/wallet/escrow/order?buyer=...&orderId=...`：指定付款人與編號的訂單、查詢區塊及 finality；不是全鏈訂單索引。
 - `POST /api/wallet/quote`：`escrow_fund`、`escrow_release`、`escrow_refund`。HTTP primitive DTO 轉成 `QuoteCommand`，客戶端不能指定託管合約或代幣。放款／退款金額由合約訂單決定，不能由請求覆寫。
-- `POST /api/wallet/send`：沿用既有密碼、CSRF、來源檢查、報價期限、nonce、費用上限、先落盤後廣播及 quote ID 重試規則。新交易送出前再次模擬，拒絕已被另一方結清的舊報價。
+- `POST /api/wallet/send`：沿用既有密碼、CSRF、來源檢查、報價期限、nonce、費用上限、先存檔再廣播及 quote ID 重試規則。新交易送出前再次模擬，拒絕已被另一方結清的舊報價。
 - 相同 quote ID 重試回傳既有交易，不重新簽名；RPC 內部重試可重送相同 raw bytes。重啟後從 durable journal 找回原 hash，再依收據恢復狀態。
+- 加速沿用原託管交易的 calldata、目標、金額與 nonce，確認頁保留原操作、訂單與資金去向。外層 `action` 仍是 `speedup`，報價的 `escrow.action` 及紀錄的 `escrowAction` 標示原付款、放款或退款動作；journal 載入時從簽名內容還原，舊紀錄缺少原編號時使用 signed order key。加速交易被收錄後仍出現在付款紀錄，重啟及再次加速保留同一訂單。取消交易及其加速則維持零額自轉，不帶訂單資料。
 - 付款紀錄提供「查看訂單」，開新分頁或重啟服務後仍可操作。原訂單編號隨簽名交易保存，載入時核對鏈上識別碼；付款人與合約地址從簽名交易還原。更新前的紀錄沒有原編號時，改用原交易的 32-byte 訂單識別碼查詢及結清，不需要重新付款。API 的 `orderId` 可接受原編號或 `0x` 開頭的 64 位十六進位識別碼。最近五筆以外的紀錄可從「查看所有交易」找回。
 - 付款回應中斷、不是有效 JSON 或遇到 HTML 502 時，UI 顯示「交易結果待確認」。先按「查詢原交易」，以原 quote ID 查詢紀錄，不會再次送出；找不到紀錄仍不視為未付款。「重試原交易」沿用同一 quote ID，即使畫面上的報價已過期，也由後端先查已保存的交易。明確的簽名前拒絕（例如密碼錯誤）保留原錯誤提示。
+- 簽署前的本機讀檔失敗回傳 HTTP 500 與 `send_rejected`，不公開檔案路徑；有可能已保存交易的儲存失敗仍保留未知結果。代幣餘額與合約狀態各自刷新，慢速代幣查詢不延後合約操作區的更新；代幣讀取維持單一批次，期間再要求刷新會合併成後續查詢。
 - 訂單讀取固定區塊並再次核對 canonical block hash；以 finalized 區塊中的相同訂單狀態、收款人及金額判斷最終確認，不要求 latest 本身已 finalized。finality 讀取失敗時不聲稱最終確認。暫時查詢失敗不當成零額或未付款，UI 隱藏失效的操作。
 
 ## 設定與部署

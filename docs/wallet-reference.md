@@ -2,9 +2,7 @@
 
 [README / language editions](../README.md)
 
-Detailed operating information retained from the original README.
-
-**Go 多鏈測試網錢包：從交易意圖、廣播前持久化，到廣播不確定時的恢復與收據核對。**
+Use this guide to run the wallet, send test assets, manage backups and recover interrupted transactions. For a public installation, follow the [deployment guide](deployment.md); the Docker setup below is for localhost.
 
 [交易恢復驗證](demo-script.md) · [9 月 15 日歷史驗收](onchain-acceptance-2026-09-15.md) · [9 月 16 日後續驗收](onchain-acceptance-2026-09-16.md) · [程序中止恢復驗證](process-recovery.md)
 
@@ -15,9 +13,9 @@ Testnet Wallet Lab 處理以下交易生命週期問題：
 - RPC 可能已收到交易，但 HTTP response 在回程中遺失。
 - 同一個使用者操作可能因重試、並發請求或程序重啟而被處理多次。
 - 「已廣播」、「已上鏈」、「執行成功」與「已 finalized」是不同狀態。
-- EVM nonce、Solana recent blockhash 與 TRON TAPOS 有不同的過期與恢復語義。
+- EVM nonce、Solana recent blockhash 與 TRON TAPOS 的有效期限和復原方式不同。
 
-因此專案把重點放在 **reliable transaction lifecycle**：簽署後先持久化、以 quote ID 防止重複簽署、在不確定的廣播結果後重送相同 signed bytes，並分開核對 receipt、canonical block 與 finality。
+交易簽署後先存檔，再送到 RPC。同一 quote ID 的重試沿用已保存的交易；廣播結果不明時，保留原始簽名資料供重送，並分開核對收據、所在區塊與最終確認狀態。
 
 ### Engineering highlights
 
@@ -34,7 +32,7 @@ Testnet Wallet Lab 處理以下交易生命週期問題：
 - **已實作：** 五個 EVM 測試網、Solana Devnet 與 TRON Shasta 的獨立錢包流程；Sepolia 上的 WETH／Uniswap V3 交換流程。
 - **鏈上驗收：** [2026-09-15 歷史快照](onchain-acceptance-2026-09-15.md)記錄五個測試網共 13 筆成功交易；[2026-09-16 後續紀錄](onchain-acceptance-2026-09-16.md)補上 Polygon Amoy 與 Solana Devnet 各一筆原生幣轉帳。這些紀錄不代表目前版本已重新驗收。
 - **測試證據：** Go unit/integration tests、race detector、Mock RPC 與 process-kill recovery test。Mock 通過不代表真實鏈或 production 環境已驗證。
-- **刻意不宣稱：** mainnet、public multi-user custody、獨立安全稽核、SLA、RPC quorum 或 production readiness。
+- **使用限制：** 僅支援測試網，未經獨立安全稽核；公開共用 Demo 不提供正式託管服務、SLA 或 RPC quorum。
 
 ## Quick overview
 
@@ -52,7 +50,7 @@ Testnet Wallet Lab 處理以下交易生命週期問題：
 
 A local **Go testnet wallet for Ethereum, Arbitrum, Base and OP Sepolia plus Polygon Amoy**, alongside independent **Solana Devnet SOL** and **TRON Shasta TRX/TRC-20 wallets** with separate accounts and per-network journals. Create or restore a wallet, receive test assets, preview fees, sign EIP-1559 transactions locally, and broadcast ETH / ERC-20 transfers and finite approvals. Wrap/unwrap ETH and WETH, swap WETH/test USDC through Uniswap V3, and reconstruct receipt-based activity with CSV export.
 
-This is a testnet prototype. Use a dedicated test mnemonic. **Do not import a wallet holding real assets.** The Go process handles decrypted keys transiently for signing; this is not a browser extension, hardware wallet, audited custody system, or public multi-user service.
+This is a testnet prototype. Use a dedicated test mnemonic. **Do not import a wallet holding real assets.** The Go process handles decrypted keys during signing. Local, protected public and shared-demo modes use the access rules described in the [deployment guide](deployment.md). The shared demo is not an audited custody service.
 
 ## One-click test tokens
 
@@ -92,7 +90,7 @@ docker compose run --rm --no-deps app go mod download
 docker compose up -d
 ```
 
-Open <http://localhost:8090> directly. The localhost demo does not require login. Keep the host port bound to `127.0.0.1` and do not expose this demo through a tunnel. Optionally set `WALLET_ACCESS_TOKEN` (at least 32 characters) to enable a browser session login; CLI clients can use Basic authentication with username `flowledger`. Never commit credentials. `WALLET_DIR=/data/wallet` uses the dedicated `wallet_data` volume. Wallet persistence uses an encrypted keystore and an atomic transaction journal.
+Open <http://localhost:8090> directly. The localhost demo does not require login. Keep the host port bound to `127.0.0.1`; public access requires the separate [deployment configuration](deployment.md). Optionally set `WALLET_ACCESS_TOKEN` (at least 32 characters) to enable a browser session login; CLI clients can use Basic authentication with username `flowledger`. Never commit credentials. `WALLET_DIR=/data/wallet` uses the dedicated `wallet_data` volume. Wallet persistence uses an encrypted keystore and an atomic transaction journal.
 
 ```sh
 docker compose ps
@@ -112,7 +110,7 @@ Source and embedded HTML/CSS/JS changes require `restart app`. Changed Compose e
 
 The dashboard's first-transaction guide can prefill a **0.000001 ETH self-transfer** or **0.000001 ETH → WETH wrap**. These controls only fill the existing forms; quotes and password confirmation remain separate. A self-transfer returns the principal to the same address and consumes test ETH gas. A positive ETH balance does not prove it covers the selected transaction's fee. Funding checks distinguish zero balance from unavailable RPC data.
 
-ERC-20: enter a Sepolia token contract to read `symbol`, `decimals`, and `balanceOf`. Select that token for `transfer` or `approve`. For approval, the recipient field is the **spender**, not a transfer recipient. Only an explicit finite allowance is permitted; `0` revokes. Existing nonzero allowance must first be set to zero before a new nonzero allowance is accepted. Token metadata is supplied by the contract and is not proof of legitimacy. Tokens with nonstandard metadata or special transfer semantics may be unsupported.
+ERC-20: select a default or previously saved token for `transfer` or `approve`. The wallet reads its `symbol`, `decimals` and `balanceOf`; the UI no longer has a form for adding arbitrary token contracts. For approval, the recipient field is the **spender**, not a transfer recipient. Only an explicit finite allowance is permitted; `0` revokes. Existing nonzero allowance must first be set to zero before a new nonzero allowance is accepted. Token metadata is supplied by the contract and is not proof of legitimacy. Tokens with nonstandard metadata or special transfer semantics may be unsupported.
 
 Refreshing the wallet queries the configured default tokens and browser-saved tokens for the selected account/network. Failed token queries retain the selected asset and last known balance, visibly marked as outdated; a successful retry clears that warning. Quotes independently recheck chain data. Token precision, raw amounts and event evidence are available in expandable details; recipients, asset contracts, readable amounts and fee limits remain visible for confirmation.
 
@@ -140,7 +138,7 @@ Refreshing the wallet queries the configured default tokens and browser-saved to
 - Automatic activity synchronization is opt-in. It saves a per-account/network cursor and scans finalized block bodies and receipts, discovering ERC-20 Transfer log candidates without requiring a known contract filter (up to 200 token candidates per saved scan state). Unsupported block-receipt RPCs fall back to individual receipts. Errors retain the cursor; restarts resume. The displayed start block defines coverage. This is not a claim that the entire chain has already been indexed.
 - A successful ERC-20 transaction receipt proves execution status; it does not by itself prove the recipient's economic balance change for fee-on-transfer, rebasing or malicious tokens.
 - Wallet POST endpoints require a per-process CSRF token, exact-origin checks, allowed local Host, JSON media type and a bounded strict body. Restarting invalidates browser CSRF state; reload the page.
-- Up to 20 independent local accounts can be created/restored and switched in the UI. Each account shares its encrypted key across supported test networks, while quotes, journals and activity indexes remain separate. Duplicate signing addresses are rejected to avoid independent nonce journals for the same key. Accounts and their background workers are loaded on first visit after startup. No mainnet, hardware signing or public multi-user access. Do not expose port 8090 with a tunnel or reverse proxy.
+- Up to 20 independent local accounts can be created/restored and switched in the UI. Each account shares its encrypted key across supported test networks, while quotes, journals and activity indexes remain separate. Duplicate signing addresses are rejected to avoid independent nonce journals for the same key. Accounts and their background workers are loaded on first visit after startup. Mainnet and hardware signing are unsupported. Public access requires the protected or shared-demo configuration; shared visitors can create password-protected EVM test wallets, but cannot import or administer existing wallets.
 
 ## Network selection and RPC fallback
 
@@ -188,11 +186,11 @@ Native SOL transfer only: 9-decimal integer lamports, System Program transfer to
 
 Signed bytes/signature are persisted before broadcast. Retry preserves the exact bytes; quote IDs deduplicate sends across restart. Quotes expire after 60 seconds or the last valid block height, whichever comes first. One outstanding transfer is allowed until finalized. Unknown/expired signatures retain the journal and can require manual investigation; expiration is not automatically declared an execution failure. Recent history shows 20 records, with a 1,000-record capacity limit. Operations are serialized within the Solana service and bounded by HTTP deadlines. No SPL-token transfers, Solana DEX, durable nonce, replacement/cancel, archival compaction, or independent RPC quorum is claimed for this first SOL implementation.
 
-No existing wallet data is overwritten on create/restore. Preserve `solana-devnet/key.json` and `transactions.json`. Do not expose the local HTTP service publicly.
+No existing wallet data is overwritten on create/restore. Preserve `solana-devnet/key.json` and `transactions.json`. Keep the local HTTP service on loopback; public installations must use the [deployment configuration](deployment.md).
 
 ## Receive and account for test assets
 
-Copy the wallet's Sepolia address to receive ETH or ERC-20 tokens. In **收支流水**, sync the latest 20 blocks, enter a starting block to scan the next batch of 20, or import a known transaction hash. Event scans specify WETH/test USDC and tokens added in the current browser session (20 contracts maximum), because the default public RPC requires a contract address filter. Add another token before syncing its incoming events. Outgoing journal transactions are included automatically. Repeated imports/synchronization deduplicate by hash. `activity.json` holds public transaction hashes; it never stores a pretend balance.
+Copy the wallet's Sepolia address to receive ETH or ERC-20 tokens. In **活動 → 開發者：同步與匯入**, sync the latest 20 blocks, enter a starting block for the next batch, or import a known transaction hash. These controls are restricted to the operator and hidden in shared-demo mode. Event queries use the loaded default and browser-saved tokens, split into batches of at most 20 contracts. The optional scanner can discover additional token transfers in its configured range. Outgoing journal transactions are included automatically. Repeated imports and synchronization deduplicate by hash. `activity.json` stores transaction hashes; amounts are reconstructed from receipts.
 
 Each page re-fetches up to 20 receipts with bounded concurrency. The view checks transaction identity, signature, chain ID, canonical block hash, receipt status and event provenance before calculating movements. Failed transactions count only sender gas. Pending, unavailable and observed orphaned transactions contribute no amounts; the page flags incomplete results. Self-transfers show both legs, leaving only the fee as net ETH change. Approval is not a token expenditure.
 

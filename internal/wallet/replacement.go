@@ -29,7 +29,7 @@ func (s *Service) replacementQuote(ctx context.Context, command QuoteCommand) (*
 		return nil, err
 	}
 	var tx types.Transaction
-	if tx.UnmarshalBinary(raw) != nil || tx.Hash().Hex() != string(record.Hash) || tx.Type() != types.DynamicFeeTxType || len(tx.AccessList()) != 0 || tx.To() == nil {
+	if tx.UnmarshalBinary(raw) != nil || tx.Hash().Hex() != string(record.Hash) || tx.ChainId().Cmp(big.NewInt(s.client.ChainID())) != 0 || tx.Nonce() != record.Nonce || tx.Type() != types.DynamicFeeTxType || len(tx.AccessList()) != 0 || tx.To() == nil {
 		return nil, errors.New("無法替代這筆交易")
 	}
 	address, err := s.keystore.Address()
@@ -40,6 +40,9 @@ func (s *Service) replacementQuote(ctx context.Context, command QuoteCommand) (*
 	sender, err := types.Sender(types.LatestSignerForChainID(tx.ChainId()), &tx)
 	if err != nil || sender != from {
 		return nil, errors.New("原交易簽名地址不符")
+	}
+	if err := restoreEscrowJournal(record, &tx); err != nil {
+		return nil, err
 	}
 	nonce, err := s.client.NonceAt(ctx, from)
 	if err != nil {
@@ -95,8 +98,17 @@ func (s *Service) replacementQuote(ctx context.Context, command QuoteCommand) (*
 	}
 	decimals := 18
 	replacementERC20 := false
+	var escrow *EscrowPreview
 	if command.Action == ActionSpeedup {
-		if _, decodeErr := DecodeERC20Calldata(data, 18); decodeErr == nil {
+		if record.EscrowAction != "" {
+			payload, err := s.prepareEscrowSpeedup(ctx, from, record, &tx)
+			if err != nil {
+				return nil, err
+			}
+			escrow = payload.Preview
+			recipient, amountRaw = EVMAddress(payload.To.Hex()), payload.Amount
+			amount, symbol, decimals = FormatUnits(payload.Amount, 6), "USDC", 6
+		} else if _, decodeErr := DecodeERC20Calldata(data, 18); decodeErr == nil {
 			symbol, decimals, err = QueryERC20Metadata(ctx, s.client, to)
 			if err != nil {
 				return nil, err
@@ -140,5 +152,5 @@ func (s *Service) replacementQuote(ctx context.Context, command QuoteCommand) (*
 	if command.Action == ActionSpeedup && len(data) > 0 {
 		contract = to
 	}
-	return &BoundQuote{ReplacementERC20: replacementERC20, Decimals: decimals, Contract: contract, ID: QuoteID(hex.EncodeToString(id)), Action: command.Action, ReplacementHash: record.Hash, ReplacementCount: len(s.journal.NonceRecords(tx.Nonce())), From: from, To: common.HexToAddress(string(recipient)), TxTo: to, TxValue: value, Amount: amount, AmountRaw: amountRaw, Symbol: symbol, Nonce: tx.Nonce(), Data: data, GasLimit: gas, MaxFeePerGas: fee, MaxPriorityFeePerGas: tip, TotalETHWei: total, TotalETH: FormatUnits(total, 18), MaxFeeETH: FormatUnits(cost, 18), Method: string(command.Action), CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().Add(120 * time.Second)}, nil
+	return &BoundQuote{Escrow: escrow, ReplacementERC20: replacementERC20, Decimals: decimals, Contract: contract, ID: QuoteID(hex.EncodeToString(id)), Action: command.Action, ReplacementHash: record.Hash, ReplacementCount: len(s.journal.NonceRecords(tx.Nonce())), From: from, To: common.HexToAddress(string(recipient)), TxTo: to, TxValue: value, Amount: amount, AmountRaw: amountRaw, Symbol: symbol, Nonce: tx.Nonce(), Data: data, GasLimit: gas, MaxFeePerGas: fee, MaxPriorityFeePerGas: tip, TotalETHWei: total, TotalETH: FormatUnits(total, 18), MaxFeeETH: FormatUnits(cost, 18), Method: string(command.Action), CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().Add(120 * time.Second)}, nil
 }

@@ -361,7 +361,8 @@ func (jm *JournalManager) listHistory(finalized *finalizedNonce) ([]HistoryItem,
 	items := make([]HistoryItem, len(records))
 	for i, r := range records {
 		items[i] = HistoryItem{
-			OrderID: string(r.OrderID), EscrowBuyer: string(r.EscrowBuyer), EscrowContract: string(r.EscrowContract),
+			EscrowAction: string(r.EscrowAction),
+			OrderID:      string(r.OrderID), EscrowBuyer: string(r.EscrowBuyer), EscrowContract: string(r.EscrowContract),
 			Hash: string(r.Hash), Finalized: r.Finalized, QuoteID: string(r.QuoteID),
 			State:         string(r.State),
 			To:            string(r.To),

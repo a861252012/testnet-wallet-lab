@@ -2,7 +2,11 @@ package erc4337
 
 import (
 	"context"
+	"errors"
+	"io"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -66,8 +70,9 @@ func TestClient_EstimateUserOperationGas(t *testing.T) {
 	}
 
 	op := &UserOperation{
-		Sender: common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
-		Nonce:  big.NewInt(0),
+		Sender:   common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+		Nonce:    big.NewInt(42),
+		CallData: []byte{1, 2},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -78,8 +83,78 @@ func TestClient_EstimateUserOperationGas(t *testing.T) {
 		t.Fatalf("EstimateUserOperationGas 失敗: %v", err)
 	}
 
-	if est.PreVerificationGas.Cmp(big.NewInt(0)) <= 0 {
-		t.Fatalf("PreVerificationGas 必須大於 0")
+	if est == nil {
+		t.Fatal("missing gas estimate")
+	}
+	for _, field := range []struct {
+		name string
+		got  *big.Int
+		want int64
+	}{
+		{"PreVerificationGas", est.PreVerificationGas, 50000},
+		{"VerificationGasLimit", est.VerificationGasLimit, 100000},
+		{"CallGasLimit", est.CallGasLimit, 200000},
+	} {
+		if field.got == nil || field.got.Cmp(big.NewInt(field.want)) != 0 {
+			t.Errorf("%s: got %v, want %d", field.name, field.got, field.want)
+		}
+	}
+
+	requests := mockServer.RecordedRequests()
+	if len(requests) != 1 {
+		t.Fatalf("got %d requests, want one gas estimate", len(requests))
+	}
+	req := requests[0]
+	if req.JSONRPC != "2.0" || req.Method != "eth_estimateUserOperationGas" || len(req.Params) != 2 {
+		t.Fatalf("unexpected estimate request: %+v", req)
+	}
+	operation, ok := req.Params[0].(map[string]any)
+	if !ok || operation["sender"] != "0x70997970c51812dc3a010c7d01b50e0d17dc79c8" ||
+		operation["nonce"] != "0x2a" || operation["callData"] != "0x0102" {
+		t.Fatalf("operation was not forwarded correctly: %v", req.Params[0])
+	}
+	if req.Params[1] != EntryPointV06.Hex() {
+		t.Fatalf("entry point: got %v, want %s", req.Params[1], EntryPointV06.Hex())
+	}
+}
+
+func TestClient_EstimateUserOperationGas_RejectsInvalidResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		wantCode   int
+	}{
+		{"invalid pre-verification gas", `{"jsonrpc":"2.0","id":1,"result":{"preVerificationGas":"0xzz","verificationGasLimit":"0x186a0","callGasLimit":"0x30d40"}}`, 0},
+		{"invalid verification gas", `{"jsonrpc":"2.0","id":1,"result":{"preVerificationGas":"0xc350","verificationGasLimit":"0xzz","callGasLimit":"0x30d40"}}`, 0},
+		{"invalid call gas", `{"jsonrpc":"2.0","id":1,"result":{"preVerificationGas":"0xc350","verificationGasLimit":"0x186a0","callGasLimit":"0xzz"}}`, 0},
+		{"RPC error", `{"jsonrpc":"2.0","id":1,"error":{"code":-32500,"message":"AA21 didn't pay prefund"}}`, -32500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			client, err := NewClient(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			op := &UserOperation{
+				Sender: common.HexToAddress("0x70997970C51812dc3A010C7d01b50e0d17dc79C8"),
+				Nonce:  big.NewInt(0),
+			}
+			est, err := client.EstimateUserOperationGas(ctx, op, EntryPointV06)
+			if err == nil || est != nil {
+				t.Fatalf("invalid response returned an estimate: estimate=%+v err=%v", est, err)
+			}
+			if tc.wantCode != 0 {
+				rpcErr, ok := errors.AsType[*JSONRPCError](err)
+				if !ok || rpcErr.Code != tc.wantCode || rpcErr.Message != "AA21 didn't pay prefund" {
+					t.Fatalf("RPC error was not preserved: %v", err)
+				}
+			}
+		})
 	}
 }
 

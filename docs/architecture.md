@@ -35,9 +35,11 @@ flowchart LR
 | What differs on Solana? | Ed25519, native message format, recent blockhash + last-valid height, signatures and finalized commitment |
 | How much does the scanner cover? | saved start/cursor, errors preserve cursor, bounded scans, no complete-history claim |
 
-The local browser is a trusted UI, but input remains untrusted: chain, contract, recipient, amount and operation are validated server-side. RPC endpoints are a trust boundary; fallback provides transport recovery, not independent consensus. Keys remain in the Go process during signing and cannot be guaranteed absent from every garbage-collected memory copy.
+Browser input is untrusted in every deployment mode: chain, contract, recipient, amount and operation are validated server-side. RPC endpoints are a trust boundary; fallback provides transport recovery, not independent consensus. Keys remain in the Go process during signing and cannot be guaranteed absent from every garbage-collected memory copy.
 
-This is a single-user local testnet prototype. EVM, Solana and TRON are separate implementations with different recovery/capacity limits. There is no public custody service, audited cryptography claim, fiat valuation, bridge or claim of production readiness.
+This is a testnet prototype with local and public deployment modes. Local mode is intended for a single operator and checks local Host/Origin and CSRF. In protected public mode, wallet data and writes require operator authentication. With `SHARED_DEMO=true`, visitors can view wallet data and create password-protected EVM test wallets without a website login; signing new transactions and exporting encrypted keys still require the wallet password. Existing-wallet administration remains restricted. These are server-enforced policies, not separate frontend trust levels; see [deployment modes and limits](deployment.md#共用錢包模式).
+
+EVM, Solana and TRON are separate implementations with different recovery/capacity limits. The shared demo is not a production custody service. There is no audited cryptography claim, fiat valuation, bridge or claim of production readiness.
 
 ## Implementation boundaries
 

@@ -7,7 +7,7 @@
 | 範圍 | 責任與可檢查依據 |
 |---|---|
 | `cmd/testnet-wallet-lab` | `loadConfig` 集中環境設定解析；main 組裝服務、管理生命週期，不放交易規則。設定測試涵蓋預設值、無效值與 faucet 檔案權限。 |
-| `internal/web` | HTTP、驗證存取來源、嚴格解碼、狀態碼與 primitive DTO。EVM、Solana、TRON、faucet、observe、diagnostics 都明確映射回應；不直接編碼交易日誌。完整入口清單見 `architecture.md`。 |
+| `internal/web` | HTTP、驗證存取來源、嚴格解碼、狀態碼與 primitive DTO。EVM、Solana、TRON、faucet、observe、diagnostics 都先轉成回應 DTO；不直接編碼交易日誌。完整入口清單見 `architecture.md`。 |
 | `internal/wallet` | 交易動作、金額、帳戶與地址驗證、簽名、持久化順序與重送政策。`QuoteCommand`、`QuoteID`、`TransactionHash`、交易狀態及鏈別識別型別用於業務運算與查找。 |
 | 儲存邊界 | EVM journal、Solana/TRON journal、scan 各有獨立 disk DTO 與具名轉換。service 持有業務紀錄；讀檔先解析，開啟 journal 仍驗證原始簽名交易。activity 索引只保存已驗證公開 hash。 |
 | `internal/chain` | RPC adapter，primitive wire 值先解析為地址、hash、整數及狀態，再供查詢與交易邏輯使用。不可依賴 wallet 或 web。 |
@@ -21,7 +21,7 @@
 - 使用早期返回、有限狀態的 `switch`；不為單次欄位拷貝或未出現的需求建立介面與框架。
 - 採 Go 1.26 的 `min`、`slices.SortFunc`／`SortStableFunc`、`slices.Clone`、`maps.Copy`、`errors.AsType`、`strings.SplitSeq` 與 `WaitGroup.Go`，以語意相同為前提。保留必要的 timeout context 與原本穩定排序。
 - API 的欄位名稱、`omitempty`、時間格式、nil 與空陣列是契約，不因風格替換成 `omitzero`。
-- 舊 EVM journal 允許缺少 `To`／`Action`，舊 opaque quote ID 不強迫改成新報價格式。交易 raw bytes、hash、落盤後廣播、CAS 版本與鎖順序保持原用途。
+- 舊 EVM journal 允許缺少 `To`／`Action`，舊 opaque quote ID 不強迫改成新報價格式。保留交易 raw bytes、hash、先存檔再廣播、CAS 版本檢查與原本的鎖順序。
 - 跨鏈 journal 的業務型別沒有 JSON tag；disk DTO 不嵌入公開回應型別。TRON 比較業務紀錄是否改變直接使用 `slices.Equal`，不透過 JSON round trip。
 
 ## Git 內容範圍

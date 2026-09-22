@@ -3,6 +3,7 @@
   $('confirm-send-button').textContent = `簽署並送出至 ${networkName}`;
   const sharedDemo = !!document.querySelector('script[src="/static/shared.js"]');
   let walletState;
+  let walletRefreshQueued = false;
   let accounts = [];
   let accountEdit = null;
   let setupMode = 'create';
@@ -14,6 +15,8 @@
   let flow;
   try { const saved = JSON.parse(sessionStorage.getItem(flowKey) || 'null'); if (saved && ['eth-usdc','usdc-eth'].includes(saved.direction) && ['wrap','swap','unwrap','done'].includes(saved.phase) && typeof saved.amount === 'string' && typeof saved.id === 'string') flow = saved; } catch {}
   const tokens = new Map();
+  let tokensRefreshing = false;
+  let tokenRefreshQueued = false;
   const tokenStorageKey = 'flowledger:tokens:' + networkPrefix;
   let historySnapshot = [];
   let historyRefreshError = '';
@@ -26,6 +29,10 @@
   const nonceConsumedNotice = '原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗，目前可建立新交易。請先核對原付款，避免重複支付。';
   const nonceConsumedBlockedNotice = '原交易結果無法確認；該 nonce 已在 finalized 狀態被消耗。請先核對原付款，避免重複支付。';
   function transactionLabel(tx) { return tx.nonceConsumed ? '原交易結果無法確認' : stateLabels[tx.state] || '狀態待確認'; }
+  function transactionActionLabel(tx) {
+    const label = actionLabels[tx.action] || '資產操作';
+    return tx.action === 'speedup' && actionLabels[tx.escrowAction] ? `${label} · ${actionLabels[tx.escrowAction]}` : label;
+  }
   function nonceNotice() { return canCreateTransaction ? nonceConsumedNotice : nonceConsumedBlockedNotice; }
 
   async function walletRequest(path, body) {
@@ -61,46 +68,55 @@
   async function refreshWallet() {
     if (!walletState?.exists) return;
     const button = $('refresh-wallet');
-    if (button.disabled) return;
+    if (button.disabled) { walletRefreshQueued = true; return; }
     button.disabled = true;
     $('check-funding').disabled = true;
     $('funding-status').textContent = `正在查詢 ${networkName} 餘額…`;
     $('wallet-error').hidden = true;
     $('wallet-balance-time').textContent = '正在查詢鏈上餘額…';
-    const results = await Promise.allSettled([
-      request(`/api/balance?address=${encodeURIComponent(walletState.address)}`),
-      walletRequest('/api/wallet/history'),
-      walletRequest('/api/wallet'),
-    ]);
-    if (results[2].status === 'fulfilled') walletState.csrfToken = results[2].value.csrfToken;
-    if (results[0].status === 'fulfilled') {
-      const balance = results[0].value;
-      $('wallet-balance').replaceChildren(document.createTextNode(balance.eth + ' '), node('small', nativeSymbol));
-      $('wallet-balance-time').textContent = `更新於 ${time(balance.checkedAt)}`;
-      $('funding-status').textContent = BigInt(balance.wei) > 0n
-        ? `已查到 ${balance.eth} ${networkName} ${nativeSymbol}。可先預估費用，是否足夠仍以報價為準。`
-        : `目前餘額為 0 ${nativeSymbol}。若剛領取，請稍後再查；代幣無法直接支付 gas。`;
-    } else {
-      $('wallet-balance').replaceChildren(document.createTextNode('— '), node('small', nativeSymbol));
-      $('wallet-balance-time').textContent = '無法取得最新餘額';
-      $('funding-status').textContent = '無法查到最新餘額，目前無法確認測試幣是否到帳，請稍後重試。';
-      showWalletError('wallet-error', results[0].reason);
+    try {
+      const results = await Promise.allSettled([
+        request(`/api/balance?address=${encodeURIComponent(walletState.address)}`),
+        walletRequest('/api/wallet/history'),
+        walletRequest('/api/wallet'),
+      ]);
+      if (results[2].status === 'fulfilled') walletState.csrfToken = results[2].value.csrfToken;
+      if (results[0].status === 'fulfilled') {
+        const balance = results[0].value;
+        $('wallet-balance').replaceChildren(document.createTextNode(balance.eth + ' '), node('small', nativeSymbol));
+        $('wallet-balance-time').textContent = `更新於 ${time(balance.checkedAt)}`;
+        $('funding-status').textContent = BigInt(balance.wei) > 0n
+          ? `已查到 ${balance.eth} ${networkName} ${nativeSymbol}。可先預估費用，是否足夠仍以報價為準。`
+          : `目前餘額為 0 ${nativeSymbol}。若剛領取，請稍後再查；代幣無法直接支付 gas。`;
+      } else {
+        $('wallet-balance').replaceChildren(document.createTextNode('— '), node('small', nativeSymbol));
+        $('wallet-balance-time').textContent = '無法取得最新餘額';
+        $('funding-status').textContent = '無法查到最新餘額，目前無法確認測試幣是否到帳，請稍後重試。';
+        showWalletError('wallet-error', results[0].reason);
+      }
+      if (results[1].status === 'fulfilled') {
+        renderHistory(results[1].value.transactions, results[1].value.refreshError || '', Boolean(results[1].value.canCreateTransaction));
+      } else {
+        renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。', false);
+        showWalletError('wallet-error', results[1].reason);
+      }
+      // Renew CSRF first; token reads have their own busy/error state and must not delay payment status.
+      void refreshTokens().catch(error => showWalletError('token-error', error));
+      if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
+      if (document.body.dataset.view === 'vault-panel') {
+        if ($('escrow-content').hidden) await refreshVault();
+        else await refreshEscrow();
+      }
+    } catch (error) {
+      showWalletError('wallet-error', error);
+    } finally {
+      button.disabled = false;
+      $('check-funding').disabled = false;
+      if (walletRefreshQueued) {
+        walletRefreshQueued = false;
+        void refreshWallet();
+      }
     }
-    if (results[1].status === 'fulfilled') {
-      renderHistory(results[1].value.transactions, results[1].value.refreshError || '', Boolean(results[1].value.canCreateTransaction));
-    }
-    else {
-      renderHistory(historySnapshot, '無法更新紀錄，請稍後再試。', false);
-      showWalletError('wallet-error', results[1].reason);
-    }
-    if (flow?.pending) await reconcileFlow(results[1].status === 'fulfilled');
-    await refreshTokens();
-    if (document.body.dataset.view === 'vault-panel') {
-      if ($('escrow-content').hidden) await refreshVault();
-      else await refreshEscrow();
-    }
-    button.disabled = false;
-    $('check-funding').disabled = false;
   }
 
   function renderHistory(transactions = historySnapshot, refreshError = historyRefreshError, allowNew = canCreateTransaction) {
@@ -117,7 +133,7 @@
     }
     if (!$('vault-history').children.length) $('vault-history').append(node('p', '尚無合約操作紀錄，完成存入或取回後會顯示在這裡。', 'muted'));
     const term = $('history-search').value.trim().toLowerCase();
-    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.orderId,tx.symbol,tx.amount,actionLabels[tx.action],transactionLabel(tx),window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
+    transactions = historySnapshot.filter(tx => [tx.hash,tx.to,tx.orderId,tx.symbol,tx.amount,transactionActionLabel(tx),transactionLabel(tx),window.flowledgerAddressLabel?.(tx.to)].some(value=>(String(value || '').toLowerCase().includes(term) || (window.FlowI18n?.t(String(value || '')) || String(value || '')).toLowerCase().includes(term))));
     const list = $('wallet-history');
     list.replaceChildren();
     if (historyRefreshError) list.append(node('p', historyRefreshError, 'error'));
@@ -130,7 +146,7 @@
       const label = window.flowledgerAddressLabel?.(tx.to);
       if (label) { const named = node('p', label); named.translate = false; summary.append(named); }
       const inspect = node('button','交易詳情','secondary');inspect.type='button';inspect.addEventListener('click',()=>{$('diagnostic-hash').value=tx.hash;location.hash='diagnostics-panel';$('diagnose-tx').click();});expanded.append(inspect);
-      summary.append(node('strong', actionLabels[tx.action] || '資產操作'), node('p', time(tx.createdAt)));
+      summary.append(node('strong', transactionActionLabel(tx)), node('p', time(tx.createdAt)));
       if (tx.orderId && tx.escrowBuyer) summary.append(escrowHistoryButton(tx));
       expanded.append(node('p', `${tx.action === 'approve' ? '被授權地址' : '收款人'} ${tx.to}`, 'mono'), explorer('tx', tx.hash));
       const amount = node('div', '', 'history-amount');
@@ -433,7 +449,7 @@
     $('escrow-history').replaceChildren();
     for (const tx of rows) {
       const row = node('p');
-      row.append(node('strong',actionLabels[tx.action] || tx.action),node('span',` · ${tx.amount} USDC · `),node('span',transactionLabel(tx)),document.createTextNode(' '),explorer('tx',tx.hash));
+      row.append(node('strong',transactionActionLabel(tx)),node('span',` · ${tx.amount} USDC · `),node('span',transactionLabel(tx)),document.createTextNode(' '),explorer('tx',tx.hash));
       if (tx.orderId && tx.escrowBuyer) {
         const reference = node('span',orderKeyLabel(tx.orderId));
         reference.translate = false;
@@ -679,10 +695,12 @@
     const entries = [['操作', actionLabels[data.action] || '資產操作'], ['網路', networkName], ['發送地址', data.from], [data.action === 'approve' ? '被授權地址' : '收款地址', data.to], ['數量', `${data.amount} ${data.symbol}`], ['執行費用上限', `${data.maxFeeEth} ${nativeSymbol}`], [data.rollupFeeEth ? '預估總扣款（含費用預留）' : '最多扣除 ' + nativeSymbol, `${data.totalEth} ${nativeSymbol}`], ['報價有效至', time(data.expiresAt)]];
     if (data.rollupFeeEth) entries.push(['L1／營運費預留', `${data.rollupFeeEth} ETH（估算含緩衝；上鏈費用仍可能變動）`]);
     if (data.escrow) {
-      $('confirm-title').textContent = data.action === 'escrow_fund' ? '確認付款至合約' : data.action === 'escrow_release' ? '確認放款給收款人' : '確認全額退款';
+      const escrowAction = data.escrow.action || data.action;
+      $('confirm-title').textContent = data.action === 'speedup' ? '確認加速原交易' : escrowAction === 'escrow_fund' ? '確認付款至合約' : escrowAction === 'escrow_release' ? '確認放款給收款人' : '確認全額退款';
+      if (data.action === 'speedup') entries.push(['原操作',actionLabels[escrowAction]]);
       entries.splice(2,2,['付款人',data.escrow.buyer],['收款人',data.escrow.seller]);
-      entries.push(['訂單編號',data.escrow.orderId],['託管合約',data.contract],['代幣合約',data.escrow.token],['資金去向',data.action==='escrow_fund'?'目前錢包 → 託管合約':data.action==='escrow_release'?'託管合約 → 收款人':'託管合約 → 原付款人']);
-      entries.push(['操作說明',data.action==='escrow_fund'?'款項會留在合約，等你放款給收款人，或由收款人退款。':'交易成功後會轉出全部款項，不能再放款或退款。']);
+      entries.push(['訂單編號',data.escrow.orderId],['託管合約',data.contract],['代幣合約',data.escrow.token],['資金去向',escrowAction==='escrow_fund'?'目前錢包 → 託管合約':escrowAction==='escrow_release'?'託管合約 → 收款人':'託管合約 → 原付款人']);
+      entries.push(['操作說明',escrowAction==='escrow_fund'?'款項會留在合約，等你放款給收款人，或由收款人退款。':'交易成功後會轉出全部款項，不能再放款或退款。']);
     } else if (data.escrowApproval) {
       $('confirm-title').textContent = data.escrowApproval.revoke ? '先撤銷舊授權' : '確認本次 USDC 授權';
       entries.push(['操作說明',data.escrowApproval.revoke?'先取消舊的授權，再授權這次要付的金額。':'這一步只授權，不會付款。授權成功後，再按「核對付款資料」。']);
@@ -794,25 +812,36 @@
     }
   });
   async function refreshTokens() {
-    let saved = [];
-    try { const data = JSON.parse(localStorage.getItem(tokenStorageKey) || "[]"); if (Array.isArray(data)) saved = data.filter(address => /^0x[0-9a-fA-F]{40}$/.test(address)).slice(0,20); } catch {}
-    const addresses = [...new Set([
-      walletState.exchange?.weth, walletState.exchange?.usdc, ...saved,
-      ...tokens.keys(),
-    ].filter(Boolean).map(address => address.toLowerCase()))];
-    let failed = false;
-    // Token queries use the read-rate pool and do not block or get blocked by wallet write operations.
-    for (const contract of addresses) {
-      try { tokens.set(contract, await walletRequest('/api/wallet/token', {contract})); }
-      catch {
-        const token = tokens.get(contract);
-        if (token) token.stale = true;
-        failed = true;
-      }
+    if (tokensRefreshing) { tokenRefreshQueued = true; return; }
+    tokensRefreshing = true;
+    $('token-list').setAttribute('aria-busy', 'true');
+    try {
+      do {
+        tokenRefreshQueued = false;
+        let saved = [];
+        try { const data = JSON.parse(localStorage.getItem(tokenStorageKey) || "[]"); if (Array.isArray(data)) saved = data.filter(address => /^0x[0-9a-fA-F]{40}$/.test(address)).slice(0,20); } catch {}
+        const addresses = [...new Set([
+          walletState.exchange?.weth, walletState.exchange?.usdc, ...saved,
+          ...tokens.keys(),
+        ].filter(Boolean).map(address => address.toLowerCase()))];
+        let failed = false;
+        // Coalesce refreshes during a read, then query again for changes after a send.
+        for (const contract of addresses) {
+          try { tokens.set(contract, await walletRequest('/api/wallet/token', {contract})); }
+          catch {
+            const token = tokens.get(contract);
+            if (token) token.stale = true;
+            failed = true;
+          }
+        }
+        renderTokens();
+        if (failed) showWalletError('token-error', new Error('部分代幣餘額無法更新，請稍後重試。'));
+        else $('token-error').hidden = true;
+      } while (tokenRefreshQueued);
+    } finally {
+      tokensRefreshing = false;
+      $('token-list').setAttribute('aria-busy', 'false');
     }
-    renderTokens();
-    if (failed) showWalletError('token-error', new Error('部分代幣餘額無法更新，請稍後重試。'));
-    else $('token-error').hidden = true;
   }
 
   function updateExchangeAction() {
@@ -1000,7 +1029,7 @@
     if(flow!==current)throw new Error('引導已變更，請重新報價。');
     data.flowID=current.id;data.flowKind=kind;openConfirmation(data);
   }
-  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => ((tx.action || '').match(/^(vault_|escrow_)/) || tx.action === 'approve' && escrowPollingContract && tx.to?.toLowerCase() === escrowPollingContract.toLowerCase()) && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
+  setInterval(()=>{if((flow?.pending || historySnapshot.some(tx => ((tx.action || '').match(/^(vault_|escrow_)/) || tx.escrowAction || tx.action === 'approve' && escrowPollingContract && tx.to?.toLowerCase() === escrowPollingContract.toLowerCase()) && ['submitted','pending','broadcast_unknown','receipt_unavailable','reorg_detected'].includes(tx.state))) && !document.hidden && !sending)refreshWallet();},10000);
 
   function displayAsset(raw, asset) {
     const config = walletState.exchange;
