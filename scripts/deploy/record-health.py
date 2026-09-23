@@ -18,7 +18,10 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 def health(url, host=None):
     started = time.monotonic()
-    request = urllib.request.Request(url, headers={"Host": host} if host else {})
+    headers = {"User-Agent": "FlowLedger-health/1.0"}
+    if host:
+        headers["Host"] = host
+    request = urllib.request.Request(url, headers=headers)
     try:
         response = urllib.request.build_opener(
             urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=4)
@@ -76,9 +79,17 @@ def snapshot():
     if "error" in containers:
         result["container_error"] = containers
     # Bounded time window catches OOM/die/restart even after automatic recovery.
-    result["events"] = command(["docker", "events", "--since", str(now - 120), "--until", str(now),
-                                "--filter", "type=container", "--filter", "label=com.docker.compose.project=testnet-wallet-demo",
-                                "--format", '{{.Time}} {{.Action}} {{.Actor.ID}}'])
+    events = command(["docker", "events", "--since", str(now - 120), "--until", str(now),
+                      "--filter", "type=container", "--filter", "label=com.docker.compose.project=testnet-wallet-demo",
+                      "--format", '{{.Time}} {{.Action}} {{.Actor.ID}}'])
+    result["events"] = []
+    if "error" in events:
+        result["event_error"] = events
+    for line in events.get("output", "").splitlines()[:64]:
+        parts = line.split()
+        if (len(parts) == 3 and parts[0].isdigit() and parts[1] in ("oom", "die", "restart", "start", "stop", "kill")
+                and all(c in "0123456789abcdef" for c in parts[2])):
+            result["events"].append({"time": int(parts[0]), "action": parts[1], "id": parts[2][:12]})
     result["local"] = health("http://127.0.0.1:8090/healthz", "wallet.tedlin.fyi")
     result["public"] = health("https://wallet.tedlin.fyi/healthz")
     return result

@@ -15,7 +15,13 @@ spec.loader.exec_module(diag)
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(502 if self.path == '/bad' else 200)
+        if self.path == '/bad':
+            status = 502
+        elif self.headers.get('User-Agent', '').startswith('Python-urllib'):
+            status = 403
+        else:
+            status = 200
+        self.send_response(status)
         self.send_header('X-App-Version', 'a' * 40)
         self.send_header('CF-Ray', 'abc-TPE')
         self.end_headers()
@@ -70,13 +76,14 @@ class DiagnosticsTest(unittest.TestCase):
             if args[:2] == ['docker', 'inspect']:
                 return {'output': '{"oom":true,"restarts":2}'}
             if args[:2] == ['docker', 'events']:
-                return {'output': '100 oom abcd1234\n101 die abcd1234'}
+                return {'output': '100 oom abcd1234\n101 exec_create: /wallet --secret=DO_NOT_LOG abcd1234\n102 die abcd1234'}
             return {'output': 'failed'}
         with patch.object(Path, 'read_text', lambda p: reads[str(p)]), patch.object(diag, 'command', side_effect=command), patch.object(diag, 'health', side_effect=[{'status': 200}, {'status': 502}]):
             result = diag.snapshot()
         self.assertEqual(result['local']['status'], 200)
         self.assertEqual(result['public']['status'], 502)
-        self.assertIn('oom', result['events']['output'])
+        self.assertEqual([event['action'] for event in result['events']], ['oom', 'die'])
+        self.assertNotIn('DO_NOT_LOG', json.dumps(result))
         self.assertNotIn('Secret', result['memory'])
         inspect = next(c for c in commands if c[:2] == ['docker', 'inspect'])
         self.assertIn('--format', inspect)
