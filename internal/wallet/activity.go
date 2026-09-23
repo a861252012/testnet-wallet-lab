@@ -49,6 +49,14 @@ const activityActiveKeepCount = 200
 
 var errActivityIndexFull = errors.New("收支索引已達 1000 筆上限；請先由管理者備份並處理索引")
 
+// Derived only from durable activity files. A service owns its wallet directory;
+// external repairs require closing and reopening the service.
+type activityIndex struct {
+	generation uint64
+	ids        []string
+	seen       map[string]bool
+}
+
 // readActivityFile 讀取單一收支索引或封存檔，並驗證雙重硬邊界與雜湊格式。
 func readActivityFile(path string) ([]string, error) {
 	f, err := os.Open(path)
@@ -135,20 +143,29 @@ func (s *Service) nextActivityArchiveName(existing []string) string {
 
 // Capture both sides of a compaction under the writer lock. Archives are immutable,
 // so their contents can be read after releasing the lock without losing hashes.
-func (s *Service) activitySnapshot() ([]string, []string, error) {
+func (s *Service) activitySnapshot() ([]string, []string, uint64, error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
 	paths, err := s.activityArchivePaths()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, 0, err
 	}
 	activeIDs, err := readActivityFile(filepath.Join(s.walletDir, "activity.json"))
-	return paths, activeIDs, err
+	return paths, activeIDs, s.activityGeneration, err
 }
 
-// activityHashes 載入所有封存檔與活躍檔，執行有序去重並維持完整歷史。
-func (s *Service) activityHashes() ([]string, error) {
-	paths, activeIDs, err := s.activitySnapshot()
+// Rebuild once after activity writes or restart, not for every page. Serialize
+// rebuilds without holding the trading lock during archive reads.
+func (s *Service) loadActivityIndex() (*activityIndex, error) {
+	s.activityMu.Lock()
+	defer s.activityMu.Unlock()
+	s.sendMu.Lock()
+	generation := s.activityGeneration
+	s.sendMu.Unlock()
+	if s.activityIndex != nil && s.activityIndex.generation == generation {
+		return s.activityIndex, nil
+	}
+	paths, activeIDs, generation, err := s.activitySnapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +189,17 @@ func (s *Service) activityHashes() ([]string, error) {
 			all = append(all, id)
 		}
 	}
-	return all, nil
+	index := &activityIndex{generation: generation, ids: all, seen: seen}
+	s.activityIndex = index
+	return index, nil
+}
+
+func (s *Service) activityHashes() ([]string, error) {
+	index, err := s.loadActivityIndex()
+	if err != nil {
+		return nil, err
+	}
+	return slices.Clone(index.ids), nil
 }
 
 // addActivityHashes writes archives before shortening the active index so a crash cannot lose hashes.
@@ -239,6 +266,9 @@ func (s *Service) addActivityHashes(ids []string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Even a failed write may have published archive chunks. The next reader must
+	// rebuild from disk rather than serve an index that predates a partial commit.
+	s.activityGeneration++
 
 	if len(combined) <= maxActivityHashes {
 		if err := atomicWriteFile(activePath, data, 0600); err != nil {
@@ -334,25 +364,25 @@ func (s *Service) Activity(ctx context.Context, page int) (*ActivityResponse, er
 	if err != nil {
 		return nil, err
 	}
-	ids, err := s.activityHashes()
+	activity, err := s.loadActivityIndex()
 	if err != nil {
 		return nil, err
 	}
-	seen := make(map[string]bool, len(ids))
-	unique := ids // activityHashes already preserves order and removes duplicates.
-	for _, id := range ids {
-		seen[id] = true
-	}
+	// Merge only journal additions; never copy or walk the complete activity index
+	// merely to serve one page, and never mutate a published index.
+	seen := map[string]bool{}
+	var extra []string
 	history := s.journal.ListHistory()
 	for i := len(history) - 1; i >= 0; i -= 1 {
 		item := history[i]
-		if !seen[item.Hash] {
+		if !activity.seen[item.Hash] && !seen[item.Hash] {
 			seen[item.Hash] = true
-			unique = append(unique, item.Hash)
+			extra = append(extra, item.Hash)
 		}
 	}
 	// Pagination follows index insertion order, not block time; each row shows its verified block time.
-	pages := (len(unique) + 19) / 20
+	total := len(activity.ids) + len(extra)
+	pages := (total + 19) / 20
 	if pages == 0 {
 		pages = 1
 	}
@@ -360,12 +390,18 @@ func (s *Service) Activity(ctx context.Context, page int) (*ActivityResponse, er
 		return nil, errors.New("頁碼超出範圍")
 	}
 	begin := (page - 1) * 20
-	end := min(begin+20, len(unique))
-	response := &ActivityResponse{ChainID: s.client.ChainID(), Page: page, Pages: pages, TotalTransactions: len(unique), Transactions: make([]*chain.Activity, end-begin), Totals: []ActivityTotal{}}
+	end := min(begin+20, total)
+	response := &ActivityResponse{ChainID: s.client.ChainID(), Page: page, Pages: pages, TotalTransactions: total, Transactions: make([]*chain.Activity, end-begin), Totals: []ActivityTotal{}}
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 4)
 	for i := begin; i < end; i += 1 {
-		hash := unique[len(unique)-1-i]
+		position := total - 1 - i
+		var hash string
+		if position < len(activity.ids) {
+			hash = activity.ids[position]
+		} else {
+			hash = extra[position-len(activity.ids)]
+		}
 		index := i - begin
 		wg.Go(func() {
 			sem <- struct{}{}

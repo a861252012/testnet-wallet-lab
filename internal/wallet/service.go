@@ -33,6 +33,9 @@ type Service struct {
 	journal                    *JournalManager
 	csrfToken                  string
 	sendMu                     sync.Mutex
+	activityMu                 sync.Mutex
+	activityGeneration         uint64         // guarded by sendMu
+	activityIndex              *activityIndex // guarded by activityMu; published indexes are immutable
 	historyMu                  sync.Mutex
 	walletDir                  string
 	vaultAddress               string
