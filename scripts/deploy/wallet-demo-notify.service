@@ -1,0 +1,24 @@
+[Unit]
+Description=Receive authenticated wallet release notifications
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+DynamicUser=yes
+RuntimeDirectory=wallet-demo-notify
+RuntimeDirectoryMode=0700
+LoadCredential=notify-token:/etc/wallet-demo-notify/token
+ExecStart=/usr/bin/python3 /usr/local/libexec/wallet-demo-notify.py
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_UNIX
+MemoryMax=64M
+TasksMax=20
+
+[Install]
+WantedBy=multi-user.target

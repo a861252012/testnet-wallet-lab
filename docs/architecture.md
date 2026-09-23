@@ -37,7 +37,7 @@ flowchart LR
 
 Browser input is untrusted in every deployment mode: chain, contract, recipient, amount and operation are validated server-side. RPC endpoints are a trust boundary; fallback provides transport recovery, not independent consensus. Keys remain in the Go process during signing and cannot be guaranteed absent from every garbage-collected memory copy.
 
-This is a testnet prototype with local and public deployment modes. Local mode is intended for a single operator and checks local Host/Origin and CSRF. In protected public mode, wallet data and writes require operator authentication. With `SHARED_DEMO=true`, visitors can view wallet data and create password-protected EVM test wallets without a website login; signing new transactions and exporting encrypted keys still require the wallet password. Existing-wallet administration remains restricted. These are server-enforced policies, not separate frontend trust levels; see [deployment modes and limits](deployment.md#共用錢包模式).
+This is a testnet prototype with local and public deployment modes. Local mode is intended for a single operator and checks local Host/Origin and CSRF. In protected public mode, wallet data and writes require operator authentication. With `SHARED_DEMO=true`, visitors can view wallet data and create password-protected EVM test wallets without a website login; signing new transactions and exporting encrypted keys still require the wallet password. Existing-wallet administration remains restricted. These are server-enforced policies, not separate frontend trust levels.
 
 EVM, Solana and TRON are separate implementations with different recovery/capacity limits. The shared demo is not a production custody service. There is no audited cryptography claim, fiat valuation, bridge or claim of production readiness.
 
@@ -50,47 +50,11 @@ EVM, Solana and TRON are separate implementations with different recovery/capaci
 - **KMS:** Remote signing and KMS integration are not implemented; signing uses the local encrypted keystore.
 - **TRON encoding:** constructing transaction bytes locally avoids relying on a remote transaction builder for recipient and contract parameters. TAPOS data, broadcast delivery and receipt observations still depend on RPC responses; local encoding does not eliminate all RPC or transport attacks.
 
-## Boundary inventory
+## Type and storage boundaries
 
-The HTTP package owns primitive request and response shapes. Handlers decode primitive shapes. Compound EVM requests use named command
-converters; scalar service inputs are parsed at the service boundary with the
-existing address, amount, account and identifier validators. Returned values
-are explicitly mapped to web response DTOs before encoding JSON.
+`internal/web` validates HTTP inputs and maps wallet results to response DTOs. `internal/wallet` owns transaction rules and converts durable records to domain types; `internal/chain` handles RPC wire values. For example, `journalRecordFromDisk` validates a saved EVM transaction before it is used by the wallet service. The signed raw bytes stay in the journal; a web response never serializes that disk record directly.
 
-| HTTP surface | Inbound conversion | Outbound conversion |
-|---|---|---|
-| EVM network, balance, transaction | query/path strings validated by `chain.Client` | `newEVMNetworkResponse`, `newEVMBalanceResponse`, `newEVMTransactionResponse` in `internal/web/evm_dto.go` |
-| EVM quote and pool comparison | `evmQuoteRequest.walletCommand` → `wallet.ParseQuoteRequest` / pool command | `newEVMQuoteResponse`, `newEVMPoolComparison` |
-| EVM wallet, account, token, send, history, activity and scanner routes | local primitive request structs; wallet validates commands and IDs | `newEVMWalletInfo`, `newEVMAccount(s)`, `newEVMToken`, `newEVMCreateResponse`, `newEVMImportResponse`, `newEVMSendResponse`, `newEVMHistoryResponse`, `newEVMActivity(Response)`, `newEVMScanProgress` |
-| Sepolia payment escrow status and order | validated `EVMAddress` / `OrderReference`; writes reuse `QuoteCommand` | `newEVMEscrowInfo`, `newEVMEscrowOrder`, `newEVMEscrowPreview` |
-| Solana status, balance, create, quote, send, history and faucet | local primitive request structs; wallet validates addresses, amounts and signatures | `newSolanaStatusResponse`, `newSolanaBalanceResponse`, `newSolanaCreateResponse`, `newSolanaQuoteResponse`, `newSolanaRecord(Response)`, `newSolanaAirdropResponse` |
-| TRON status, balance, token, create, quote, send and history | local primitive request structs; wallet validates Base58 addresses, raw amounts and signatures | `newTronStatusResponse`, `newTronBalanceResponse`, `newTronTokenResponse`, `newTronCreateResponse`, `newTronQuoteResponse`, `newTronRecord(Response)` |
-| Observation and diagnostics | primitive query/path values validated by chain/client | observation-specific response DTOs in `internal/web/observe.go` |
-
-Durable files use separate wire records and converters at the wallet boundary.
-`journalRecordDisk` is the JSON shape for `journal.json` and archive records;
-`journalRecordFromDisk` validates legacy records and converts them to the typed
-journal domain, while `journalRecordToDisk` serializes a domain record without
-exposing storage details to handlers. `activity.json` remains a public hash
-index: hashes are validated on read and amounts are reconstructed from receipt
-evidence. Solana and TRON transaction files retain their established signed
-raw-byte formats; their native disk records are converted and signature-checked
-before becoming domain records. Keyfiles remain independent cryptographic wire
-formats and are never returned by a response DTO.
-
-The conversion inventory is the maintained checklist for new routes and files:
-adding a handler or a durable record requires a named converter and a regression
-test for its JSON shape, including nil, empty-slice and optional-field behavior.
-
-The scanner persists `scanProgressDisk` and operates on `scanState` with typed
-addresses. Solana and TRON services hold `solanaJournalRecord` and
-`tronJournalRecord`, never their disk DTOs. Their save paths explicitly convert
-back to the established JSON shape, retaining signed bytes unchanged.
-
-`TestLayerBoundaries` checks import direction and external types in web DTO
-fields. It is a structural guard, not a static proof of every handler data flow.
-See [Go conventions and verification](go-style.md) for the adopted reference
-and compatibility decisions.
+`TestLayerBoundaries` checks import direction and external field types in web DTOs. It does not prove every handler's data flow. See [Go conventions and verification](go-style.md) for the related tests and compatibility rules.
 
 ## Local wallet management
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Dispatch queued wallet release notifications
+Requires=wallet-demo-notify.service
+After=wallet-demo-notify.service
+
+[Path]
+PathExists=/run/wallet-demo-notify/trigger
+Unit=wallet-demo-notify-dispatch.service
+
+[Install]
+WantedBy=multi-user.target

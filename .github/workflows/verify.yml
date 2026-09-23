@@ -125,6 +125,11 @@ jobs:
             --certificate-github-workflow-trigger 'push' \
             --certificate-github-workflow-sha "$GITHUB_SHA" \
             "$image" >/dev/null
+      - name: Notify VM to check the signed release
+        if: vars.DEMO_NOTIFY_ENABLED == 'true'
+        env:
+          DEMO_NOTIFY_SECRET: ${{ secrets.DEMO_NOTIFY_SECRET }}
+        run: python3 scripts/deploy/send-notify.py "$GITHUB_SHA"
       - if: always()
         run: docker logout ghcr.io
   live:

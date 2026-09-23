@@ -41,6 +41,7 @@ test-results/
 /TEST_INFRA.md
 /docs/*-evaluation-report.md
 /docs/*-handoff-*.md
+/docs/deployment.md
 /docs/ui-refresh-*.md
 /docs/ui-ux-polish-*.md
 /docs/evidence/vault-local-*/

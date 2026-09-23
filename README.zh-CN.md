@@ -4,19 +4,11 @@
 
 **[在线 Demo（仅供测试链使用）](https://wallet.tedlin.fyi/)**
 
-用 Go 编写的多链测试网钱包实验项目，用来实现转账、代币兑换、交易跟踪，以及 RPC 失败或进程重启后的恢复处理。
+这是用 Go 编写的 EVM、Solana 和 TRON 测试网钱包。重点是交易结果不明时如何处理：先保存签署内容再广播、用 quote ID 避免重复签名，重启后继续查收据。
 
 ![钱包界面，使用本地测试数据](docs/images/wallet-overview.png)
 
 *界面预览使用本地测试数据。*
-
-## Solidity 测试 ETH 存款箱
-
-Solidity 存款／提款合约搭配 Sepolia 面板，包含每个地址独立余额与重入保护。[2026-09-19 验收记录](docs/evidence/vault-sepolia-2026-09-19/REPORT.md)记录了公共 Sepolia 部署、Sourcify 源码验证及存取结果；Etherscan 单独验证仍未完成。记录对应当时版本，未配置合约地址的环境仍禁用操作。
-
-新增[测试 USDC 付款托管](docs/payment-escrow.md)：付款人付款与放款，收款人可全额退回原付款人。沿用交易日志与重试流程，提供合约、Go/HTTP 及 Chromium＋模拟 EVM 测试；已在公共 Sepolia 完成付款、放款与退款，见[交易收据与余额验收](docs/evidence/escrow-sepolia-2026-09-22/README.md)。
-
-[合约、测试与启用方式](docs/eth-vault.md)。存款箱使用 AI 协作开发。
 
 ## 本地启动与验证
 
@@ -44,12 +36,18 @@ EVM 收据是否成功、所在区块是否仍在主链，以及是否 finalized
 | Solana Devnet | SOL 转账，使用独立钱包 |
 | TRON Shasta | TRX／TRC-20 转账，使用独立钱包 |
 
+## Solidity 测试 ETH 存款箱
+
+Solidity 存款／提款合约搭配 Sepolia 面板，包含每个地址独立余额与重入保护。[2026-09-19 验收记录](docs/evidence/vault-sepolia-2026-09-19/REPORT.md)记录了公共 Sepolia 部署、Sourcify 源码验证及存取结果；Etherscan 单独验证在当时尚未完成。未配置合约地址的环境仍禁用操作。
+
+另有[测试 USDC 付款托管](docs/payment-escrow.md)：付款人付款与放款，收款人可全额退回原付款人。沿用交易日志与重试流程，提供合约、Go/HTTP 及 Chromium＋模拟 EVM 测试；已在公共 Sepolia 完成付款、放款与退款，见[交易收据与余额验收](docs/evidence/escrow-sepolia-2026-09-22/README.md)。
+
+[合约与测试](docs/eth-vault.md)。
+
 ## 智能合约钱包实验
 
-已在 Ethereum Sepolia 完成账户部署与转账测试，目前仅支持命令行操作。
+ERC-4337 v0.6 账户已通过命令行在 Ethereum Sepolia 完成部署与转账；[收据与限制](docs/erc4337-acceptance.md)也记录了 v0.7 仍只有格式支持，尚无公链验收。
 
-## 公开 Demo 部署
+## 公开 Demo
 
-[部署与验证说明](docs/deployment.md)包含 VM、免费 Cloudflare Tunnel、共享测试钱包模式与 main 自动部署设置。共享模式下，访客免网站登录使用同一个测试钱包；签署新交易及导出加密密钥仍需钱包密码，访客可创建并命名受密码保护的 EVM 测试钱包（全站最多 20 个）；已有钱包的更名、归档仍受限制。VM 主动拉取验证后镜像，不需要 CI SSH 凭证。公开网址：https://wallet.tedlin.fyi/ 。每次 push main 通过 CI 后发布镜像，VM 每两分钟检查更新。
-
-界面将交易状态与依收据整理的收支明细集中在“活动”。诊断入口放在设置；公开共享模式隐藏无法使用的管理操作。EVM、Solana 与 TRON 的地址簿支持搜索、改名、复制、直接发送及移除后恢复，依测试网络存储在当前浏览器；不会跨设备同步。EVM 收款人菜单也包含已创建的钱包。测试币由按钮直接申请；EVM／TRON 需配置有库存的专用发币账户，SOL 使用 Devnet 空投并受上游额度限制。Demo 部署以 TEST_FAUCET_CONFIG 指向 /data/wallet 内权限为 0600 的 JSON 配置文件；发币私钥与密码不可提交至 Git。
+公开网址：https://wallet.tedlin.fyi/ 。访客共用测试钱包；签署新交易及导出加密密钥仍需钱包密码。访客可创建受密码保护的 EVM 测试钱包（全站最多 20 个）。

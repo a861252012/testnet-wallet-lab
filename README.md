@@ -4,19 +4,11 @@
 
 **[Live demo (testnets only)](https://wallet.tedlin.fyi/)**
 
-A multi-chain testnet wallet experiment written in Go, for exploring transfers, token swaps, transaction tracking and recovery after RPC failures or restarts.
+A Go testnet wallet for EVM, Solana and TRON. The main problem explored here is uncertain broadcasts: save signed bytes before sending, deduplicate retries by quote ID, and resume receipt checks after a restart.
 
 ![Wallet interface with local test data](docs/images/wallet-overview.png)
 
 *Interface preview using local test data.*
-
-## Solidity ETH vault
-
-A Solidity deposit/withdraw contract with a Sepolia-only panel, per-address balances and reentrancy protection. The [2026-09-19 acceptance record](docs/evidence/vault-sepolia-2026-09-19/REPORT.md) documents public Sepolia deployment, Sourcify source verification and deposit/withdraw receipts. Etherscan-specific verification remains incomplete. The record describes that version; unconfigured environments remain disabled.
-
-[Payment escrow](docs/payment-escrow.md) adds test USDC funding, payer-authorized release and recipient-authorized full refunds to the original payer. It reuses the durable transaction journal and retry flow, with contract, Go/HTTP and Chromium + simulated EVM tests. Public Sepolia payment, release and refund flows have been completed; see the [receipts and balance checks](docs/evidence/escrow-sepolia-2026-09-22/README.md).
-
-[Contract, tests and setup](docs/eth-vault.md). The vault was developed with AI assistance.
 
 ## Run and verify
 
@@ -44,12 +36,18 @@ EVM receipt success, canonical block inclusion and finality are checked separate
 | Solana Devnet | SOL transfers, separate wallet |
 | TRON Shasta | TRX / TRC-20 transfers, separate wallet |
 
+## Solidity ETH vault
+
+A Solidity deposit/withdraw contract with a Sepolia-only panel, per-address balances and reentrancy protection. The [2026-09-19 acceptance record](docs/evidence/vault-sepolia-2026-09-19/REPORT.md) documents public Sepolia deployment, Sourcify source verification and deposit/withdraw receipts. Etherscan-specific verification was incomplete at that time. Unconfigured environments remain disabled.
+
+[Payment escrow](docs/payment-escrow.md) adds test USDC funding, payer-authorized release and recipient-authorized full refunds to the original payer. It reuses the durable transaction journal and retry flow, with contract, Go/HTTP and Chromium + simulated EVM tests. Public Sepolia payment, release and refund flows have been completed; see the [receipts and balance checks](docs/evidence/escrow-sepolia-2026-09-22/README.md).
+
+[Contract and tests](docs/eth-vault.md).
+
 ## Smart contract wallet experiment
 
-Account deployment and a transfer have been tested on Ethereum Sepolia. This experiment currently runs from the command line only.
+An ERC-4337 v0.6 account was deployed and used for a transfer on Ethereum Sepolia through the CLI. The [receipts and limits](docs/erc4337-acceptance.md) also distinguish this from v0.7 encoding support, which has no public-chain acceptance.
 
-## Public demo deployment
+## Public demo
 
-See [deployment setup and verification](docs/deployment.md) for the VM, free Cloudflare Tunnel, shared test wallet mode, and main-branch CI/CD. In shared mode, visitors use the same test wallet without a website login; signing new transactions and exporting encrypted keys require the wallet password. Visitors can create and name a password-protected EVM test wallet (20 accounts total); renaming and archiving existing wallets remain restricted. The VM pulls verified images without CI SSH credentials. Live demo: https://wallet.tedlin.fyi/. Main pushes publish verified images; the VM checks for updates every two minutes.
-
-The wallet UI groups transaction status and receipt-based asset movements under Activity. Advanced diagnostics live in Settings; unavailable shared-demo administration is hidden. Contacts support search, rename, copy, send and undo removal on EVM, Solana and TRON, stored only in the current browser per test network. The EVM recipient picker also includes existing wallets. Test tokens are requested directly with a button. EVM/TRON require a separately funded faucet account; SOL uses Devnet airdrops subject to upstream limits. The demo deployment accepts TEST_FAUCET_CONFIG pointing to a private 0600 JSON file inside /data/wallet; no funding keys or passwords belong in Git.
+Live demo: https://wallet.tedlin.fyi/. Visitors share a test wallet; signing new transactions and exporting encrypted keys require its password. Visitors can create password-protected EVM test wallets (20 accounts total).

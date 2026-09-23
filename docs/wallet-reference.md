@@ -2,7 +2,7 @@
 
 [README / language editions](../README.md)
 
-Use this guide to run the wallet, send test assets, manage backups and recover interrupted transactions. For a public installation, follow the [deployment guide](deployment.md); the Docker setup below is for localhost.
+Use this guide to run the wallet, send test assets, manage backups and recover interrupted transactions. The Docker setup below is for localhost.
 
 [交易恢復驗證](demo-script.md) · [9 月 15 日歷史驗收](onchain-acceptance-2026-09-15.md) · [9 月 16 日後續驗收](onchain-acceptance-2026-09-16.md) · [程序中止恢復驗證](process-recovery.md)
 
@@ -34,27 +34,9 @@ Testnet Wallet Lab 處理以下交易生命週期問題：
 - **測試證據：** Go unit/integration tests、race detector、Mock RPC 與 process-kill recovery test。Mock 通過不代表真實鏈或 production 環境已驗證。
 - **使用限制：** 僅支援測試網，未經獨立安全稽核；公開共用 Demo 不提供正式託管服務、SLA 或 RPC quorum。
 
-## Quick overview
-
-- **交易可靠性**：簽署後先保存 journal 才廣播；相同 quote ID 重送沿用既有交易，明確重播使用原始簽名 bytes。
-- **狀態一致性**：以版本檢查避免慢查詢覆蓋新狀態；廣播逾時保留未知狀態，收據與 finality 分別核對。
-- **整合範圍**：五個 EVM 測試網，以及獨立 Solana Devnet、TRON Shasta 錢包；Uniswap V3 兌換限 Ethereum Sepolia。
-- **功能與證據入口**：啟動後開啟 `/showcase`。
-
-| 證據 | 能支持的結論 | 限制 |
-| --- | --- | --- |
-| 隔離 Go／瀏覽器測試 | Mock 條件下的交易及介面行為 | 不代表真實鏈執行成功 |
-| 程序中止恢復測試 | SIGKILL 後讀回 journal、維持 nonce 保護、重播相同交易 | 本機 Mock RPC；不證明停電耐久性 |
-| [2026-09-15](onchain-acceptance-2026-09-15.md)／[2026-09-16](onchain-acceptance-2026-09-16.md) 驗收紀錄 | 依兩次歷史紀錄，七個測試網共 15 筆成功交易 | 不代表目前版本重新驗收，也未涵蓋所有功能與故障情境 |
-| GitHub Actions 定義 | 提供可重跑的 race／vet／coverage 與瀏覽器檢查流程 | 工作流程存在不等於遠端 CI 已通過；不宣稱未量測的覆蓋率 |
-
-A local **Go testnet wallet for Ethereum, Arbitrum, Base and OP Sepolia plus Polygon Amoy**, alongside independent **Solana Devnet SOL** and **TRON Shasta TRX/TRC-20 wallets** with separate accounts and per-network journals. Create or restore a wallet, receive test assets, preview fees, sign EIP-1559 transactions locally, and broadcast ETH / ERC-20 transfers and finite approvals. Wrap/unwrap ETH and WETH, swap WETH/test USDC through Uniswap V3, and reconstruct receipt-based activity with CSV export.
-
-This is a testnet prototype. Use a dedicated test mnemonic. **Do not import a wallet holding real assets.** The Go process handles decrypted keys during signing. Local, protected public and shared-demo modes use the access rules described in the [deployment guide](deployment.md). The shared demo is not an audited custody service.
-
 ## One-click test tokens
 
-The wallet now has **領取測試幣** buttons. EVM and TRON requests use a locally configured test-only dispenser account; the recipient does not need to enter a wallet password. Transfers are real testnet transactions, not simulated balances. Solana calls Devnet `requestAirdrop` directly and reports unavailable/rate-limited results.
+The wallet has **領取測試幣** buttons. EVM and TRON requests use a locally configured test-only dispenser account; the recipient does not need to enter a wallet password. Transfers are real testnet transactions, not simulated balances. Solana calls Devnet `requestAirdrop` directly and reports unavailable/rate-limited results.
 
 - Ethereum Sepolia: 0.001 ETH or 0.01 test USDC.
 - Base / OP / Arbitrum Sepolia: 0.0001 ETH.
@@ -90,7 +72,7 @@ docker compose run --rm --no-deps app go mod download
 docker compose up -d
 ```
 
-Open <http://localhost:8090> directly. The localhost demo does not require login. Keep the host port bound to `127.0.0.1`; public access requires the separate [deployment configuration](deployment.md). Optionally set `WALLET_ACCESS_TOKEN` (at least 32 characters) to enable a browser session login; CLI clients can use Basic authentication with username `flowledger`. Never commit credentials. `WALLET_DIR=/data/wallet` uses the dedicated `wallet_data` volume. Wallet persistence uses an encrypted keystore and an atomic transaction journal.
+Open <http://localhost:8090> directly. The localhost demo does not require login. Keep the host port bound to `127.0.0.1`. Optionally set `WALLET_ACCESS_TOKEN` (at least 32 characters) to enable a browser session login; CLI clients can use Basic authentication with username `flowledger`. Never commit credentials. `WALLET_DIR=/data/wallet` uses the dedicated `wallet_data` volume. Wallet persistence uses an encrypted keystore and an atomic transaction journal.
 
 ```sh
 docker compose ps
@@ -120,7 +102,7 @@ Refreshing the wallet queries the configured default tokens and browser-saved to
 - The optional BIP-39 passphrase is fixed to empty. A keystore encryption password is a separate concept; importing a mnemonic from a passphrase-protected wallet will not restore that wallet.
 - Ethereum V3 keystore encrypted with geth StandardScrypt settings. Files use `0600`; wallet directory uses `0700`. A process lock prevents two app instances from operating the same directory.
 - The backup control downloads a password-protected V3 keystore after verifying the password. The UI restores from mnemonic or a V3 scrypt keystore (up to 8 KB, bounded KDF parameters), re-encrypting imported keys with the chosen local password. Password changes are atomic and do not alter old backups; export a new backup afterward. Keep the backup password separately.
-- Passwords are not stored, and no unlocked session is retained. Mutable key material is cleared where practical; Go garbage collection prevents a guarantee that every in-memory copy is erased.
+- Wallet passwords entered for signing are not written as plaintext files, and no unlocked session is retained. The optional test-faucet config is different: it stores a dedicated dispenser password in a `0600` JSON file and keeps it in process memory. Mutable key material is cleared where practical; Go garbage collection prevents a guarantee that every in-memory copy is erased.
 - Preserve the **whole wallet volume**, including `journal.json`, when moving/restarting an active wallet. Restoring only the mnemonic does not restore this application's transaction history or pending-operation safeguards.
 
 `docker compose down` keeps data. **`docker compose down -v` deletes the wallet, journal and other named volumes.** Do not run it as a routine stop command. If mnemonic display is lost during creation, the encrypted key may still exist: use the password-protected backup; the app never overwrites an existing wallet to retry creation.
@@ -162,7 +144,7 @@ docker compose run --rm --no-deps \
   app go test ./internal/wallet -run TestSepoliaExchangeReadOnly -v -count=1
 ```
 
-This checks deployed code, token metadata and live quotes. It does **not** claim a completed swap. References: [Uniswap Sepolia deployments](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments), [Circle test USDC](https://developers.circle.com/stablecoins/usdc-contract-addresses).
+This checks the local implementation against Sepolia token metadata and live quotes. It does **not** claim a completed swap. References: [Uniswap Sepolia deployments](https://developers.uniswap.org/docs/protocols/v3/deployments/v3-ethereum-deployments), [Circle test USDC](https://developers.circle.com/stablecoins/usdc-contract-addresses).
 
 ## Guided exchange, observation and diagnostics
 
@@ -184,9 +166,9 @@ Open `/solana/`. This is one independent local SOL account, with BIP-39 + SLIP-0
 
 Native SOL transfer only: 9-decimal integer lamports, System Program transfer to an on-curve wallet address, confirmed blockhash, `getFeeForMessage`, pre-sign simulation, signed preflight, and genesis-hash guard. The pinned Devnet genesis is `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG`. `SOLANA_DEVNET_RPC_URL` may change the provider but not the allowed cluster. Testnet is intended primarily for validator testing; application work uses [Devnet](https://solana.com/docs/references/clusters).
 
-Signed bytes/signature are persisted before broadcast. Retry preserves the exact bytes; quote IDs deduplicate sends across restart. Quotes expire after 60 seconds or the last valid block height, whichever comes first. One outstanding transfer is allowed until finalized. Unknown/expired signatures retain the journal and can require manual investigation; expiration is not automatically declared an execution failure. Recent history shows 20 records, with a 1,000-record capacity limit. Operations are serialized within the Solana service and bounded by HTTP deadlines. No SPL-token transfers, Solana DEX, durable nonce, replacement/cancel, archival compaction, or independent RPC quorum is claimed for this first SOL implementation.
+Signed bytes/signature are persisted before broadcast. Retry preserves the exact bytes; quote IDs deduplicate sends across restart. Quotes expire after 60 seconds or the last valid block height, whichever comes first. Only one transfer remains outstanding at a time. A finalized receipt or an RPC-observed `expired_unconfirmed` state releases that gate; expiry does not prove the original transfer failed, so check it before sending another payment. Unknown/expired signatures stay in the journal for later investigation. Recent history shows 20 records, with a 1,000-record capacity limit. Operations are serialized within the Solana service and bounded by HTTP deadlines. No SPL-token transfers, Solana DEX, durable nonce, replacement/cancel, archival compaction, or independent RPC quorum is claimed for this first SOL implementation.
 
-No existing wallet data is overwritten on create/restore. Preserve `solana-devnet/key.json` and `transactions.json`. Keep the local HTTP service on loopback; public installations must use the [deployment configuration](deployment.md).
+No existing wallet data is overwritten on create/restore. Preserve `solana-devnet/key.json` and `transactions.json`. Keep the local HTTP service on loopback.
 
 ## Receive and account for test assets
 
@@ -263,7 +245,7 @@ FLOWLEDGER_LIVE_NETWORKS=1 go test -run '^TestAdditionalNetworksReadOnly$' -v -c
 - TRX amounts use integer SUN (6 decimals). Custom TRC-20 contracts supply symbol, decimals and balance through constant calls. Transfer calldata is constructed locally from the confirmed recipient and amount, and simulated before quoting and signing. No preconfigured token is represented as official USDT. Only standard bool-returning `transfer` contracts are supported; a token symbol alone proves no issuer identity.
 - Locally construct only the two supported protobuf contract types using the published TRON schema; never sign opaque node-generated transactions. Quote binds addresses, asset, amount, TAPOS reference, expiration and Energy `fee_limit`. SHA-256 of raw data is the transaction ID, and recoverable secp256k1 signatures are persisted before `broadcasthex`.
 - Show available Bandwidth/Energy and reserve full bandwidth burn (serialized signed size plus 64 bytes of overhead), account-activation fees when required, and 2× simulated Energy cost. Chain parameters supply SUN prices. Quotes last 60 seconds and Energy reservation is limited to 100 test TRX per transaction. These are conservative estimates, not guarantees: `fee_limit` applies to Energy only, resource/fee conditions can change, and the actual fee comes from the receipt.
-- Retry sends identical persisted bytes only while unexpired. Unknown outcomes are retained. One outstanding transaction is allowed until a Solidity-node receipt reports it solidified. An absent receipt plus a validated Solidity-node head timestamp beyond transaction expiration releases the pending gate as `expired_unconfirmed`; the signed record is retained and later receipts can still reconcile it. Local time or a failed RPC alone cannot release the gate. This relies on the configured node, not an independent RPC quorum. Native TRX self-transfers are rejected before signing. Latest history shows 20 local outgoing records (capacity 1,000). Successful VM execution returning `false` for TRC-20 is shown as failed transfer. No automated incoming TRON indexer, TRON DEX, staking/resource delegation, multisig, TRON archive compaction, or replacement mechanism is implemented.
+- Retry sends identical persisted bytes only while unexpired. Unknown outcomes are retained. One outstanding transaction is allowed; a solidified receipt or `expired_unconfirmed` releases the pending gate. The latter requires an absent receipt and a validated Solidity-node head timestamp beyond the transaction expiration; it does not prove the transfer failed. The signed record is retained and later receipts can still reconcile it. Local time or a failed RPC alone cannot release the gate. This relies on the configured node, not an independent RPC quorum. Native TRX self-transfers are rejected before signing. Latest history shows 20 local outgoing records (capacity 1,000). Successful VM execution returning `false` for TRC-20 is shown as failed transfer. No automated incoming TRON indexer, TRON DEX, staking/resource delegation, multisig, TRON archive compaction, or replacement mechanism is implemented.
 - Optional `TRON_SHASTA_API_KEY` is a provider credential, never a wallet key. Redirects are rejected and genesis is rechecked immediately before broadcasts. Mainnets remain rejected. RPC observations rely on the configured provider; independent quorum is not implemented.
 
 Official sources: [Polygon Amoy configuration](https://docs.polygon.technology/pos/reference/rpc-endpoints), [TRON networks](https://developers.tron.network/docs/networks), [resource model](https://developers.tron.network/docs/resource-model), [TRON protobuf schema](https://github.com/tronprotocol/protocol/blob/master/core/Tron.proto).

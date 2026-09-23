@@ -6,7 +6,7 @@ unset DOCKER_HOST DOCKER_CONTEXT DOCKER_CONFIG COMPOSE_FILE COMPOSE_PROJECT_NAME
 readonly base=/opt/testnet-wallet-lab
 readonly repository=ghcr.io/a861252012/testnet-wallet-lab
 exec 8>"$base/poll.lock"
-flock -n 8 || exit 0
+flock -w 600 8 || { echo 'Timed out waiting for another release check' >&2; exit 1; }
 head=$(curl --fail --silent --show-error --max-time 20 -H 'Cache-Control: no-cache' https://api.github.com/repos/a861252012/testnet-wallet-lab/commits/main | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])')
 [[ "$head" =~ ^[a-f0-9]{40}$ ]] || exit 1
 if [[ -f "$base/current-image" ]]; then
