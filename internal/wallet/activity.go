@@ -133,9 +133,22 @@ func (s *Service) nextActivityArchiveName(existing []string) string {
 	return filepath.Join(s.walletDir, fmt.Sprintf("activity-archive-%020d.json", now))
 }
 
+// Capture both sides of a compaction under the writer lock. Archives are immutable,
+// so their contents can be read after releasing the lock without losing hashes.
+func (s *Service) activitySnapshot() ([]string, []string, error) {
+	s.sendMu.Lock()
+	defer s.sendMu.Unlock()
+	paths, err := s.activityArchivePaths()
+	if err != nil {
+		return nil, nil, err
+	}
+	activeIDs, err := readActivityFile(filepath.Join(s.walletDir, "activity.json"))
+	return paths, activeIDs, err
+}
+
 // activityHashes 載入所有封存檔與活躍檔，執行有序去重並維持完整歷史。
 func (s *Service) activityHashes() ([]string, error) {
-	paths, err := s.activityArchivePaths()
+	paths, activeIDs, err := s.activitySnapshot()
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +165,6 @@ func (s *Service) activityHashes() ([]string, error) {
 				all = append(all, id)
 			}
 		}
-	}
-	activePath := filepath.Join(s.walletDir, "activity.json")
-	activeIDs, err := readActivityFile(activePath)
-	if err != nil {
-		return nil, err
 	}
 	for _, id := range activeIDs {
 		if !seen[id] {
@@ -326,19 +334,14 @@ func (s *Service) Activity(ctx context.Context, page int) (*ActivityResponse, er
 	if err != nil {
 		return nil, err
 	}
-	s.sendMu.Lock()
 	ids, err := s.activityHashes()
-	s.sendMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	seen := map[string]bool{}
-	unique := []string{}
+	seen := make(map[string]bool, len(ids))
+	unique := ids // activityHashes already preserves order and removes duplicates.
 	for _, id := range ids {
-		if !seen[id] {
-			seen[id] = true
-			unique = append(unique, id)
-		}
+		seen[id] = true
 	}
 	history := s.journal.ListHistory()
 	for i := len(history) - 1; i >= 0; i -= 1 {

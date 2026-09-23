@@ -19,6 +19,16 @@
     el.textContent = value;
     return el;
   };
+  const tokenSymbol = value => {
+    const el = text('span', value);
+    el.translate = false;
+    return el;
+  };
+  const tokenAmount = (tag, amount, symbol) => {
+    const el = text(tag, amount + ' ');
+    el.append(tokenSymbol(symbol));
+    return el;
+  };
   async function api(path, body) {
     const response = await fetch('/tron/api/' + path, {
       signal: AbortSignal.timeout(45000),
@@ -69,7 +79,7 @@
         if (tx.feeTrx) row.append(text('p', '實際費用 ' + tx.feeTrx + ' TRX'));
         if (tx.result) row.append(text('p', '執行結果 ' + tx.result));
         row.append(
-          text('strong', tx.amount + ' ' + tx.symbol),
+          tokenAmount('strong', tx.amount, tx.symbol),
           text('p', tx.to),
           text('p', (labels[tx.state] || tx.state) + (tx.finalized ? ' · 終局確認' : '')),
           link
@@ -212,7 +222,7 @@
         ...[
           ['網路', 'TRON Shasta'],
           ['收款人', quote.to],
-          ['數量', quote.amount + ' ' + quote.symbol],
+          ['數量', quote.amount],
           ['預估費用', quote.feeTrx + ' TRX'],
           ['有效至', new Date(quote.expiresAt).toLocaleString(document.documentElement.lang)],
           ['Energy 用量估算', quote.energy],
@@ -221,7 +231,11 @@
           ['代幣合約', quote.contract || '原生 TRX'],
           ['最小單位', quote.amountRaw || '—'],
           ['代幣精度', quote.decimals]
-        ].map(([k, v]) => text('p', k + '：' + v))
+        ].map(([k, v]) => {
+          const row = text('p', k + '：' + v + (k === '數量' ? ' ' : ''));
+          if (k === '數量') row.append(tokenSymbol(quote.symbol));
+          return row;
+        })
       );
       $('tron-sign-error').textContent = '';
       $('tron-confirm').showModal();
@@ -352,8 +366,11 @@
     try {
       const token = await api('token?' + new URLSearchParams({ address: state.address, contract }));
       if (isCurrent())
-        $('tron-token-info').textContent =
-          `${token.balance} ${token.symbol} · ${token.decimals} 位小數 · ${token.contract}`;
+        $('tron-token-info').replaceChildren(
+          document.createTextNode(`${token.balance} `),
+          tokenSymbol(token.symbol),
+          document.createTextNode(` · ${token.decimals} 位小數 · ${token.contract}`)
+        );
     } catch (err) {
       if (isCurrent()) $('tron-token-info').textContent = err.message;
     } finally {

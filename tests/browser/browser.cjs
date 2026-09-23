@@ -27,6 +27,7 @@ let rejectSendStatus = 0, scanTokens = [], syncRequests = [], syncFailureBatch =
 const transactionStatuses = new Map();
 let exists = true, balanceFailure = false, loseSendResponse = false, history = [], sent = [], quotes = new Map(), allowances = new Map();
 let tronExists=false,tronHistory=[],tronSends=0;const tronAddress='TUEZSdKsoDHQMeZwihtdoBiN46zxhGWYdH';
+let tronTokenSymbol='TEST';
 let solExists = false, solHistory = [], solSends = 0;
 const solAddress = 'CghaUzuHcKaSKQG3UtoZzMafEPmnRk1V6LUN2Hdp8XWa';
 const networks = {base:84532,optimism:11155420,arbitrum:421614,polygon:80002};
@@ -50,8 +51,8 @@ const server = http.createServer(async (req,res)=>{
   if(pathname==='/tron/api/create'){tronExists=true;return respond({address:tronAddress});}
   if(pathname==='/tron/api/balance')return respond({trx:'100',active:true,bandwidth:600,energy:0});
   if(pathname==='/tron/api/history')return respond(tronHistory);
-  if(pathname==='/tron/api/token')return respond({contract:tronAddress,symbol:'TEST',balance:'1',decimals:6});
-  if(pathname==='/tron/api/quote')return respond({...body,id:'tron-quote',symbol:body.contract?'TEST':'TRX',feeTrx:'0.3',feeLimitTrx:'0',energy:0,bandwidth:300,expiresAt:new Date(Date.now()+60000).toISOString()});
+  if(pathname==='/tron/api/token')return respond({contract:tronAddress,symbol:tronTokenSymbol,balance:'1',decimals:6});
+  if(pathname==='/tron/api/quote')return respond({...body,id:'tron-quote',amount:body.amount||body.amountRaw,symbol:body.contract?tronTokenSymbol:'TRX',feeTrx:'0.3',feeLimitTrx:'0',energy:0,bandwidth:300,expiresAt:new Date(Date.now()+60000).toISOString()});
   if(pathname==='/tron/api/send'){tronSends += 1;tronHistory=[{signature:'1'.repeat(64),to:tronAddress,amount:'0.000001',symbol:'TRX',feeTrx:'0.001',state:'finalized',finalized:true}];return respond(tronHistory[0]);}
   if(pathname==='/solana/'){res.setHeader('Content-Type','text/html');return res.end(pages['solana-'+(url.searchParams.has('shared')?'shared':'private')]);}
   if(pathname==='/solana/api/status')return respond({exists:solExists,address:solAddress,csrfToken:solCSRF});
@@ -609,6 +610,22 @@ const server = http.createServer(async (req,res)=>{
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'English mobile overflow');
   await page.goto(base+'/solana/');assert.equal(await page.locator('#language-select').inputValue(),'en');await view('send-panel');assert.equal(await page.locator('#sol-transfer button[type=submit]').textContent(),'Review transfer');
   await page.goto(base+'/tron/');await view('test-funding-panel');assert.equal(await page.locator('#tron-claim').textContent(),'Get 5 test TRX');
+  const previousTronHistory=tronHistory;
+  tronTokenSymbol='TOKEN：發送資產';
+  tronHistory=[{signature:'2'.repeat(64),to:tronAddress,amount:'1',symbol:tronTokenSymbol,state:'finalized',finalized:true}];
+  await page.reload();await view('send-panel');
+  await page.waitForFunction(()=>document.querySelector('#tron-history').textContent.includes('TOKEN'));
+  await page.locator('#tron-contract').fill(tronAddress);await page.locator('#tron-token-query').click();
+  await page.waitForFunction(()=>document.querySelector('#tron-token-info').textContent.includes('TOKEN'));
+  await page.locator('#tron-to').fill(tronAddress);await page.locator('#tron-amount').fill('1');
+  await page.locator('#tron-transfer button[type=submit]').click();await page.locator('#tron-confirm').waitFor({state:'visible'});
+  for(const locale of ['en','zh-CN']){
+    await page.locator('#language-select').selectOption(locale);
+    for(const selector of ['#tron-history strong','#tron-token-info','#tron-quote'])
+      assert.ok((await page.locator(selector).textContent()).includes(tronTokenSymbol),selector+' preserves the token symbol in '+locale);
+  }
+  await page.locator('#tron-cancel').click();
+  tronTokenSymbol='TEST';tronHistory=previousTronHistory;
   await page.locator('#language-select').selectOption('zh-TW');assert.equal(await page.locator('#tron-claim').textContent(),'領取 5 測試 TRX');
   await page.setViewportSize({width:1280,height:900});await page.goto(base);await page.locator('#language-select').selectOption('en');
   const untranslated=[];
