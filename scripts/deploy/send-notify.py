@@ -24,6 +24,9 @@ def main():
     secret = os.environ['DEMO_NOTIFY_SECRET'].encode()
     if not re.fullmatch(rb'[a-f0-9]{64}', secret):
         raise SystemExit('Invalid notification secret')
+    gate = os.environ.get('DEMO_NOTIFY_GATE', '')
+    if not re.fullmatch(r'[a-f0-9]{64}', gate):
+        raise SystemExit('Cloudflare WAF gate is required')
     revision = sys.argv[1].encode()
     opener = build_opener(NoRedirect)
     for attempt in range(3):
@@ -31,6 +34,7 @@ def main():
         signature = hmac.new(secret, stamp.encode() + b'\n' + revision, hashlib.sha256).hexdigest()
         headers = {
             'Content-Type': 'text/plain',
+            'X-Demo-Notify-Gate': gate,
             'X-Release-Time': stamp,
             'X-Release-Signature': 'sha256=' + signature,
         }

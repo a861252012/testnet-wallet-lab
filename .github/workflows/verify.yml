@@ -129,6 +129,7 @@ jobs:
         if: vars.DEMO_NOTIFY_ENABLED == 'true'
         env:
           DEMO_NOTIFY_SECRET: ${{ secrets.DEMO_NOTIFY_SECRET }}
+          DEMO_NOTIFY_GATE: ${{ secrets.DEMO_NOTIFY_GATE }}
         run: python3 scripts/deploy/send-notify.py "$GITHUB_SHA"
       - if: always()
         run: docker logout ghcr.io

@@ -21,6 +21,7 @@ sender_spec = importlib.util.spec_from_file_location('wallet_notify_sender', ROO
 sender = importlib.util.module_from_spec(sender_spec)
 sender_spec.loader.exec_module(sender)
 SECRET = b'a' * 64
+GATE = 'c' * 64
 REVISION = b'b' * 40
 
 
@@ -64,11 +65,31 @@ class NotifyTests(unittest.TestCase):
         self.assertFalse(self.trigger.exists(), 'replay must not queue again')
 
     def test_sender_signs_release_for_receiver(self):
+        requests = []
+        original_request = sender.Request
+
+        def record_request(*args, **kwargs):
+            request = original_request(*args, **kwargs)
+            requests.append(request)
+            return request
+
         with patch.object(sender, 'URL', f'http://127.0.0.1:{self.port}/notify'), \
                 patch.object(sys, 'argv', ['send-notify.py', REVISION.decode()]), \
-                patch.dict(os.environ, {'DEMO_NOTIFY_SECRET': SECRET.decode()}, clear=True):
+                patch.object(sender, 'Request', side_effect=record_request), \
+                patch.dict(os.environ, {
+                    'DEMO_NOTIFY_SECRET': SECRET.decode(),
+                    'DEMO_NOTIFY_GATE': GATE,
+                }, clear=True):
             sender.main()
         self.assertTrue(self.trigger.exists())
+        self.assertEqual(requests[0].get_header('X-demo-notify-gate'), GATE)
+
+    def test_sender_requires_waf_gate(self):
+        with patch.object(sys, 'argv', ['send-notify.py', REVISION.decode()]), \
+                patch.dict(os.environ, {'DEMO_NOTIFY_SECRET': SECRET.decode()}, clear=True):
+            with self.assertRaisesRegex(SystemExit, 'Cloudflare WAF gate'):
+                sender.main()
+        self.assertFalse(self.trigger.exists())
 
     def test_sender_rejects_redirect_without_forwarding_credentials(self):
         received = []
@@ -107,6 +128,7 @@ class NotifyTests(unittest.TestCase):
                 patch.object(sender.time, 'sleep'), \
                 patch.dict(os.environ, {
                     'DEMO_NOTIFY_SECRET': SECRET.decode(),
+                    'DEMO_NOTIFY_GATE': GATE,
                 }, clear=True):
             with self.assertRaises(SystemExit):
                 sender.main()
