@@ -508,6 +508,50 @@ const server = http.createServer(async (req,res)=>{
   assert.equal(new Set(syncRequests.flatMap(body=>body.contracts)).size,22);
   scanTokens=[];
   console.log('PASS: explicit send rejection recovery, replacement intent/cancellation checks, and complete 22-token batched sync with failure cursor retention.');
+  const discoveryCandidates = Array.from({length:21},(_,i)=>'0x7'+String(i+1).padStart(39,'0'));
+  const discoveryFailures = new Set(discoveryCandidates.slice(0,20));
+  const discoveryReads = [];
+  let releaseScan;
+  const scanGate = new Promise(resolve => { releaseScan = resolve; });
+  await page.route('**/api/wallet/scan', async route => {
+    await scanGate;
+    return route.fulfill({json:{enabled:false,start:90,next:91,finalized:100,tokens:discoveryCandidates}});
+  });
+  await page.route('**/api/wallet/token', route => {
+    const contract = route.request().postDataJSON().contract.toLowerCase();
+    if (!discoveryCandidates.includes(contract)) return route.continue();
+    discoveryReads.push(contract);
+    return discoveryFailures.has(contract)
+      ? route.fulfill({status:502,json:{error:'fixture nonstandard metadata'}})
+      : route.fulfill({json:{contract,symbol:'DISCOVERED',decimals:18,balance:'1',balanceRaw:'1000000000000000000',allowanceRaw:'0'}});
+  });
+  await page.reload();
+  await page.waitForFunction(()=>document.querySelector('#wallet-loading').hidden && document.querySelector('#token-list').getAttribute('aria-busy')==='false');
+  async function watchDiscoveryRender() {
+    await page.evaluate(()=>{
+      window.discoveryRendered = false;
+      const observer = new MutationObserver(()=>{window.discoveryRendered = true;observer.disconnect();});
+      observer.observe(document.querySelector('#send-asset'),{childList:true});
+    });
+  }
+  await watchDiscoveryRender();
+  releaseScan();
+  await page.waitForFunction(()=>window.discoveryRendered);
+  assert.deepEqual(discoveryReads,discoveryCandidates.slice(0,20));
+  await watchDiscoveryRender();
+  await page.locator('#stop-scan').evaluate(button=>button.click());
+  await page.waitForFunction(()=>window.discoveryRendered);
+  assert.equal(discoveryReads[20],discoveryCandidates[20],'later candidates get a turn after a full failed batch');
+  assert.equal(discoveryReads.length,40,'each discovery pass remains capped at 20 requests');
+  assert.ok(await page.locator(`#send-asset option[value="${discoveryCandidates[20]}"]`).count());
+  discoveryFailures.delete(discoveryCandidates[0]);
+  await watchDiscoveryRender();
+  await page.locator('#stop-scan').evaluate(button=>button.click());
+  await page.waitForFunction(()=>window.discoveryRendered);
+  assert.ok(await page.locator(`#send-asset option[value="${discoveryCandidates[0]}"]`).count(),'previously failed metadata is retried and can recover');
+  await page.unroute('**/api/wallet/scan');
+  await page.unroute('**/api/wallet/token');
+  console.log('PASS: failed discovery candidates rotate, preserve the batch limit, and recover on retry.');
   exists=false;await page.reload();await page.locator('#wallet-setup').waitFor({state:'visible'});await view('watch-panel');assert.equal(await page.locator('#watch-panel').isVisible(),true);
   await page.setViewportSize({width:390,height:844});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'mobile overflow');
   await page.goto(base+'/solana/');await page.locator('#sol-setup').waitFor({state:'visible'});

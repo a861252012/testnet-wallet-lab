@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/a861252012/testnet-wallet-lab/internal/chain"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -145,17 +146,24 @@ func (s *Service) ConfigureScan(enabled bool, start *uint64) (*ScanProgress, err
 }
 
 func (s *Service) ScanOnce(ctx context.Context) error {
+	s.scanRunMu.Lock()
+	defer s.scanRunMu.Unlock()
 	s.scanMu.Lock()
-	defer s.scanMu.Unlock()
 	state, err := s.scanProgress()
 	if err != nil || !state.Enabled {
+		s.scanMu.Unlock()
 		return err
 	}
 	address, err := s.keystore.Address()
 	if err != nil {
+		s.scanMu.Unlock()
 		return err
 	}
+	generation := s.scanGeneration
+	s.scanMu.Unlock()
+
 	final, err := s.client.FinalizedNumber(ctx)
+	var block *chain.ScannedBlock
 	if err == nil {
 		state.Finalized = final
 		// Legacy files without explicitStart retain the default recent-block behavior.
@@ -167,29 +175,35 @@ func (s *Service) ScanOnce(ctx context.Context) error {
 			state.Start = state.Next
 		}
 		if state.Next <= final {
-			block, scanErr := s.client.ScanFinalizedBlock(ctx, state.Next, common.HexToAddress(address))
-			err = scanErr
-			if err == nil {
-				_, err = s.addActivityHashes(block.Hashes)
+			block, err = s.client.ScanFinalizedBlock(ctx, state.Next, common.HexToAddress(address))
+		}
+	}
+
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	// A changed setting owns the progress file. Ignore results from the old scan.
+	if generation != s.scanGeneration {
+		return nil
+	}
+	if err == nil && block != nil {
+		_, err = s.addActivityHashes(block.Hashes)
+	}
+	if err == nil && block != nil {
+		known := map[EVMAddress]bool{}
+		for _, token := range state.Tokens {
+			known[token] = true
+		}
+		for _, raw := range block.Tokens {
+			token, parseErr := ParseEVMAddress(raw)
+			if parseErr != nil {
+				return parseErr
 			}
-			if err == nil {
-				known := map[EVMAddress]bool{}
-				for _, token := range state.Tokens {
-					known[token] = true
-				}
-				for _, raw := range block.Tokens {
-					token, parseErr := ParseEVMAddress(raw)
-					if parseErr != nil {
-						return parseErr
-					}
-					if !known[token] && len(state.Tokens) < 200 {
-						state.Tokens = append(state.Tokens, token)
-						known[token] = true
-					}
-				}
-				state.Next += 1
+			if !known[token] && len(state.Tokens) < 200 {
+				state.Tokens = append(state.Tokens, token)
+				known[token] = true
 			}
 		}
+		state.Next += 1
 	}
 	state.Error = ""
 	if err != nil {

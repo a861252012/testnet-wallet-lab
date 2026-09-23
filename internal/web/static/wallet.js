@@ -1300,13 +1300,18 @@
   });
   let scanTimer;
   let scanRefreshing = false;
+  let scanTokenOffset = 0;
   async function refreshScan() {
     if (!walletState?.exists || scanRefreshing) return;
     scanRefreshing = true;
     try {
       const state = await walletRequest('/api/wallet/scan');
       $('scan-progress').textContent = `${state.enabled ? '同步已啟用' : '同步已暫停'} · 起點 ${state.start} · 下一區塊 ${state.next} · finalized ${state.finalized}${state.error ? ' · ' + state.error : ''}`;
-      const discovered = (state.tokens || []).filter(contract => !tokens.has(contract.toLowerCase())).slice(0,20);
+      const candidates = state.tokens || [];
+      const offset = scanTokenOffset % (candidates.length || 1);
+      const discovered = [...candidates.slice(offset), ...candidates.slice(0,offset)].filter(contract => !tokens.has(contract.toLowerCase())).slice(0,20);
+      // Rotate failed candidates so they cannot keep later discoveries out of every batch.
+      if (discovered.length) scanTokenOffset = (candidates.indexOf(discovered.at(-1)) + 1) % candidates.length;
       for (const contract of discovered) {
         try { const token = await walletRequest('/api/wallet/token',{contract}); tokens.set(contract.toLowerCase(),token); }
         catch { /* Nonstandard metadata does not turn a discovery candidate into a trusted asset. */ }

@@ -241,10 +241,12 @@ Standards: [BIP-39](https://github.com/bitcoin/bips/blob/master/bip-0039.mediawi
 
 ```sh
 npm ci --prefix tests/browser
-cd tests/browser && npx playwright install chromium && npm test
+(cd tests/browser && npx playwright install chromium)
+npm test --prefix tests/browser
+npm run test:e2e --prefix tests/browser
 ```
 
-These browser tests serve the repository HTML/JS with local mock API responses. They verify network navigation, address-book text safety, read-only access before setup, RPC failure states, both guided exchange directions, pool selection, response-loss recovery, diagnostics and mobile layout. They never access the runtime wallet or public RPC. GitHub Actions in `.github/workflows/verify.yml` runs isolated Go race/vet/coverage checks plus browser tests and Go CLI tests; consult [GitHub Actions](https://github.com/a861252012/testnet-wallet-lab/actions) for actual remote run results.
+`npm test` serves the repository HTML/JS with local mock API responses. It verifies network navigation, address-book text safety, read-only access before setup, RPC failure states, both guided exchange directions, pool selection, response-loss recovery, diagnostics and mobile layout. `npm run test:e2e` separately runs Chromium against a Go server and simulated EVM to check vault deposits/withdrawals, escrow payments/settlement and order recovery. It requires the Go toolchain and runs with the race detector. Both suites use temporary test data without accessing the runtime wallet or public RPC. GitHub Actions in `.github/workflows/verify.yml` runs both suites alongside isolated Go race/vet/coverage checks and Go CLI tests; consult [GitHub Actions](https://github.com/a861252012/testnet-wallet-lab/actions) for actual remote run results.
 
 Read-only new-network acceptance:
 

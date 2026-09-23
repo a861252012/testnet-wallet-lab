@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -73,6 +74,84 @@ func TestScannerPersistsCursorOnlyAfterSuccessfulBlock(t *testing.T) {
 	state, err = restarted.ScanProgress()
 	if err != nil || state.Next != 101 || !state.Enabled {
 		t.Fatal("lost persisted cursor")
+	}
+}
+
+func TestScannerConfigurationIsResponsiveDuringBlockRPC(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	unblock := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	header := &types.Header{Number: big.NewInt(100), Difficulty: big.NewInt(0), GasLimit: 30000000, BaseFee: big.NewInt(1)}
+	client := mockRPC(t, func(method string, params json.RawMessage) any {
+		switch method {
+		case "eth_chainId":
+			return "0xaa36a7"
+		case "eth_getBlockByNumber":
+			var args []json.RawMessage
+			if err := json.Unmarshal(params, &args); err != nil {
+				return err
+			}
+			var full bool
+			if len(args) > 1 {
+				_ = json.Unmarshal(args[1], &full)
+			}
+			if full {
+				close(entered)
+				<-release
+				return map[string]any{"hash": header.Hash(), "transactions": []any{}}
+			}
+			return header
+		case "eth_getBlockReceipts":
+			return []any{}
+		}
+		return nil
+	})
+	svc, err := NewService(client, t.TempDir(), 2, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+	if _, err := svc.Create("test-password-123"); err != nil {
+		t.Fatal(err)
+	}
+	start := uint64(100)
+	if _, err := svc.ConfigureScan(true, &start); err != nil {
+		t.Fatal(err)
+	}
+	scanDone := make(chan error, 1)
+	go func() { scanDone <- svc.ScanOnce(context.Background()) }()
+	select {
+	case <-entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("scan did not enter block RPC")
+	}
+	configDone := make(chan error, 1)
+	go func() {
+		_, err := svc.ConfigureScan(false, nil)
+		configDone <- err
+	}()
+	select {
+	case err := <-configDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("configuration was blocked by the scan RPC")
+	}
+	unblock()
+	select {
+	case err := <-scanDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("scan did not finish")
+	}
+	progress, err := svc.ScanProgress()
+	if err != nil || progress.Enabled || progress.Next != 100 || progress.Error != "" {
+		t.Fatalf("old scan overwrote new configuration: %+v, %v", progress, err)
 	}
 }
 

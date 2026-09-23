@@ -25,4 +25,4 @@ docker run --rm --network none \
 
 This container has no external network and no live wallet volume. Tests use temporary wallet directories and mock RPCs. A passing result covers the assertions above, not power-loss durability or blockchain execution.
 
-A lost-response integration check requires a dedicated disposable service and a controlled proxy that forwards the transaction but drops the response. Cutting the network before forwarding does not prove the node accepted it. The tests above do not establish that this full integration scenario has been verified.
+The separate [`TestE2EEscrowPaymentReleaseRefundRecovery`](../tests/e2e/escrow_test.go) uses a proxy to drop the RPC response after a simulated EVM accepts the transaction. It reopens the service and journal, retries the same quote without another broadcast, then checks the receipt and order state. Run it with `go test -race -count=1 -run '^TestE2EEscrowPaymentReleaseRefundRecovery$' ./tests/e2e`. This covers local integration with a simulated EVM, not response loss on public Sepolia.

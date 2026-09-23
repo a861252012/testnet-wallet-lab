@@ -25,6 +25,7 @@ import (
 type Service struct {
 	historyOffset              int
 	scanMu                     sync.Mutex
+	scanRunMu                  sync.Mutex
 	catalog                    *Service
 	client                     *chain.Client
 	keystore                   *KeystoreManager
