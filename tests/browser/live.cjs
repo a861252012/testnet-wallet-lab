@@ -12,7 +12,7 @@ const { chromium } = require('playwright');
   if (expectedVault) assert.match(expectedVault, /^0x[0-9a-fA-F]{40}$/, 'EXPECTED_VAULT_ADDRESS must be an EVM address');
   if (expectedEscrow) assert.match(expectedEscrow, /^0x[0-9a-fA-F]{40}$/, 'EXPECTED_ESCROW_ADDRESS must be an EVM address');
 
-  // The VM polls releases after CI publishes; a healthy old revision is not success.
+  // The VM checks signed releases after notification; a healthy old revision is not success.
   const deadline = Date.now() + 10 * 60 * 1000;
   let deployed = false;
   while (Date.now() < deadline) {
